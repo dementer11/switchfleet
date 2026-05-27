@@ -1,6 +1,6 @@
 # NetOps Orchestrator
 
-Каркас enterprise-системы для управления сетевым оборудованием без Netmiko.
+Каркас enterprise-системы для управления сетевым оборудованием через точные CLI-драйверы.
 
 Что уже заложено:
 
@@ -32,6 +32,35 @@
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e ".[dev,xlsx]"
+```
+
+## Offline / Portable
+
+Release assets include:
+
+- `switchfleet-windows-offline-<version>.zip` - Windows offline installer with wheelhouse.
+- `switchfleet-linux-offline-<version>.tar.gz` - Linux x86_64 offline installer with wheelhouse.
+- `switchfleet-redos-7.3.6-offline-<version>.tar.gz` - RED OS 7.3.6 x86_64 offline installer with wheelhouse.
+- `switchfleet-windows-portable-<version>.zip` - portable Windows bundle with embedded Python.
+
+Offline installers do not use internet during installation. They require a local Python 3.10-3.13 x64 runtime.
+
+Windows portable:
+
+```powershell
+.\switchfleet.cmd --help
+```
+
+Offline installers:
+
+```powershell
+.\install.cmd
+.\switchfleet.cmd --help
+```
+
+```bash
+./install.sh
+./switchfleet --help
 ```
 
 Проверить распознавание инвентаря:

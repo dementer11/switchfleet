@@ -13,7 +13,7 @@ from .transports.ssh_paramiko import ParamikoCliTransport, SshCredentials
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="netops", description="Network orchestration without Netmiko.")
+    parser = argparse.ArgumentParser(prog="netops", description="Network equipment orchestration.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_inventory = sub.add_parser("inventory", help="Inspect inventory and driver mapping")
