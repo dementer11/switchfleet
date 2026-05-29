@@ -1,0 +1,8 @@
+system-view
+acl name {{ name }} 3000
+{% for rule in rules -%}
+rule {{ rule.sequence }} {{ rule.action }} {{ rule.protocol }} source {{ rule.src }} destination {{ rule.dst }}
+{% endfor -%}
+quit
+quit
+

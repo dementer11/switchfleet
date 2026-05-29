@@ -45,4 +45,4 @@ def driver_for(device: Device) -> CliDriver:
         return DellPowerConnectDriver(device)
     if "d-link" in vendor or "des" in model:
         return DlinkDesDriver(device)
-    return CiscoIosDriver(device)
+    return UnsupportedDriver(device)

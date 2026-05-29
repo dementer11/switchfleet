@@ -14,7 +14,8 @@ class BulatBsDriver(CliDriver):
             "end",
         ]
         warnings = ["Bulat BS public CLI reference was not available; validate this BS2500/BS6300 profile on a lab device."]
-        return self.plan("password", commands, warnings)
+        secrets = {command for command in commands if new_password in command}
+        return self.config_plan("password", commands, warnings, secret_commands=secrets)
 
     def configure_acl(self, acl_name: str, rules: list[AclRule]):
         commands = ["configure terminal", f"ip access-list extended {acl_name}"]
@@ -25,7 +26,7 @@ class BulatBsDriver(CliDriver):
         )
         commands.extend(["exit", "end"])
         warnings = ["Validate ACL syntax on the target Bulat firmware before batch execution."]
-        return self.plan("acl", commands, warnings)
+        return self.config_plan("acl", commands, warnings, verify_commands=[f"show access-lists {acl_name}"])
 
     def configure_vlan(self, change: VlanChange):
         commands = ["configure terminal", f"vlan {change.vlan_id}"]
@@ -41,7 +42,7 @@ class BulatBsDriver(CliDriver):
             commands.append("exit")
         commands.append("end")
         warnings = ["Validate VLAN syntax on the target Bulat firmware before batch execution."]
-        return self.plan("vlan", commands, warnings)
+        return self.config_plan("vlan", commands, warnings, verify_commands=[f"show vlan id {change.vlan_id}"])
 
     def configure_port(self, change: PortChange):
         commands = ["configure terminal", f"interface {change.interface}"]
@@ -56,7 +57,7 @@ class BulatBsDriver(CliDriver):
             commands.append("no shutdown" if change.enabled else "shutdown")
         commands.extend(["exit", "end"])
         warnings = ["Validate port syntax on the target Bulat firmware before batch execution."]
-        return self.plan("port", commands, warnings)
+        return self.config_plan("port", commands, warnings, verify_commands=[f"show running-config interface {change.interface}"])
 
     def backup_config(self):
         return self.plan(

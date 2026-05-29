@@ -14,33 +14,33 @@ ROLE_BY_LEVEL = {
 
 class ComwareSmbDriver(CliDriver):
     name = "comware_smb"
+    netmiko_device_type = "hp_comware"
 
     def change_password(self, username: str, new_password: str, level: AccessLevel = AccessLevel.admin):
         commands = [
-            "system-view",
             f"local-user {username}",
             f"password cipher {new_password}",
             "service-type ssh terminal",
             f"authorization-attribute level {hpe_privilege_level(level)}",
             "quit",
-            "quit",
         ]
         warnings = ["HPE 1910/1920 may require hidden _cmdline-mode before system-view on some firmware."]
-        return self.plan("password", commands, warnings)
+        secrets = {command for command in commands if new_password in command}
+        return self.config_plan("password", commands, warnings, secret_commands=secrets)
 
     def configure_acl(self, acl_name: str, rules: list[AclRule]):
         acl_id = int(acl_name) if acl_name.isdigit() else 3000
-        commands = ["system-view", f"acl advanced {acl_id}"]
+        commands = [f"acl advanced {acl_id}"]
         commands.extend(
             f"rule {rule.sequence} {rule.action} {rule.protocol} source {rule.source} destination {rule.destination}"
             + (f" {rule.extra}" if rule.extra else "")
             for rule in rules
         )
-        commands.extend(["quit", "quit"])
-        return self.plan("acl", commands)
+        commands.append("quit")
+        return self.config_plan("acl", commands, verify_commands=[f"display acl {acl_id}"])
 
     def configure_vlan(self, change: VlanChange):
-        commands = ["system-view", f"vlan {change.vlan_id}"]
+        commands = [f"vlan {change.vlan_id}"]
         if change.name:
             commands.append(f"name {change.name}")
         commands.append("quit")
@@ -51,11 +51,10 @@ class ComwareSmbDriver(CliDriver):
             else:
                 commands.append(f"port trunk permit vlan {change.vlan_id}")
             commands.append("quit")
-        commands.append("quit")
-        return self.plan("vlan", commands)
+        return self.config_plan("vlan", commands, verify_commands=[f"display vlan {change.vlan_id}"])
 
     def configure_port(self, change: PortChange):
-        commands = ["system-view", f"interface {change.interface}"]
+        commands = [f"interface {change.interface}"]
         if change.description is not None:
             commands.append(f"description {change.description}")
         if change.access_vlan is not None:
@@ -65,8 +64,8 @@ class ComwareSmbDriver(CliDriver):
             commands.extend(["port link-type trunk", f"port trunk permit vlan {vlans}"])
         if change.enabled is not None:
             commands.append("undo shutdown" if change.enabled else "shutdown")
-        commands.extend(["quit", "quit"])
-        return self.plan("port", commands)
+        commands.append("quit")
+        return self.config_plan("port", commands, verify_commands=[f"display current-configuration interface {change.interface}"])
 
     def backup_config(self):
         return self.plan("backup", ["screen-length disable", "display current-configuration"], read_only=True)
@@ -80,14 +79,13 @@ class ComwareLegacyDriver(ComwareSmbDriver):
 
     def change_password(self, username: str, new_password: str, level: AccessLevel = AccessLevel.admin):
         commands = [
-            "system-view",
             f"local-user {username}",
             f"password cipher {new_password}",
             f"service-type ssh telnet terminal level {hpe_privilege_level(level)}",
             "quit",
-            "quit",
         ]
-        return self.plan("password", commands)
+        secrets = {command for command in commands if new_password in command}
+        return self.config_plan("password", commands, secret_commands=secrets)
 
 
 class Comware7Driver(ComwareSmbDriver):
@@ -95,12 +93,11 @@ class Comware7Driver(ComwareSmbDriver):
 
     def change_password(self, username: str, new_password: str, level: AccessLevel = AccessLevel.admin):
         commands = [
-            "system-view",
             f"local-user {username} class manage",
             f"password irreversible-cipher {new_password}",
             "service-type ssh terminal",
             f"authorization-attribute user-role {ROLE_BY_LEVEL[level]}",
             "quit",
-            "quit",
         ]
-        return self.plan("password", commands)
+        secrets = {command for command in commands if new_password in command}
+        return self.config_plan("password", commands, secret_commands=secrets)

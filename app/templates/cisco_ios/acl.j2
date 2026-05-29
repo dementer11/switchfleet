@@ -1,0 +1,8 @@
+configure terminal
+ip access-list {{ acl_type }} {{ name }}
+{% for rule in rules -%}
+{{ rule.sequence }} {{ rule.action }} {{ rule.protocol }} {{ rule.src }} {{ rule.dst }}
+{% endfor -%}
+exit
+end
+

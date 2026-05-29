@@ -1,0 +1,10 @@
+configure terminal
+interface {{ interface }}
+switchport mode trunk
+switchport trunk allowed vlan {{ allowed_vlans }}
+{% if native_vlan %}switchport trunk native vlan {{ native_vlan }}{% endif %}
+{% if description %}description {{ description }}{% endif %}
+{% if admin_state == "up" %}no shutdown{% else %}shutdown{% endif %}
+exit
+end
+

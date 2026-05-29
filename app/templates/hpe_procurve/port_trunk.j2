@@ -1,0 +1,6 @@
+{% for vlan_id in allowed_vlans -%}
+vlan {{ vlan_id }}
+tagged {{ interface }}
+exit
+{% endfor -%}
+

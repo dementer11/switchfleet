@@ -1,0 +1,6 @@
+configure terminal
+interface {{ interface }}
+switchport mode trunk
+switchport trunk allowed vlan {{ allowed_vlans }}
+end
+

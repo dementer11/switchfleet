@@ -12,6 +12,31 @@ class AccessLevel(str, Enum):
     enable = "enable"
 
 
+class CommandPhase(str, Enum):
+    exec = "exec"
+    config = "config"
+    save = "save"
+    verify = "verify"
+
+
+@dataclass(frozen=True)
+class PromptResponse:
+    pattern: str
+    response: str
+    hidden: bool = False
+
+
+@dataclass(frozen=True)
+class CommandStep:
+    command: str
+    phase: CommandPhase = CommandPhase.exec
+    responses: tuple[PromptResponse, ...] = ()
+    expected_prompt: str | None = None
+    read_only: bool = False
+    secret: bool = False
+    error_patterns: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True)
 class Device:
     label: str
@@ -32,12 +57,29 @@ class CommandPlan:
     operation: str
     commands: tuple[str, ...]
     save_commands: tuple[str, ...] = ()
+    verify_commands: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
     read_only: bool = False
+    transport: str = "paramiko"
+    netmiko_device_type: str | None = None
+    steps: tuple[CommandStep, ...] = ()
 
     @property
     def all_commands(self) -> tuple[str, ...]:
-        return self.commands + self.save_commands
+        return tuple(step.command for step in self.execution_steps)
+
+    @property
+    def execution_steps(self) -> tuple[CommandStep, ...]:
+        if self.steps:
+            return self.steps
+        return (
+            tuple(CommandStep(command, read_only=self.read_only) for command in self.commands)
+            + tuple(CommandStep(command, phase=CommandPhase.save) for command in self.save_commands)
+            + tuple(CommandStep(command, phase=CommandPhase.verify, read_only=True) for command in self.verify_commands)
+        )
+
+    def redacted_commands(self) -> tuple[str, ...]:
+        return tuple("<redacted>" if step.secret else step.command for step in self.execution_steps)
 
 
 @dataclass(frozen=True)

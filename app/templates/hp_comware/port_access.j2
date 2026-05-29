@@ -1,0 +1,9 @@
+system-view
+interface {{ interface }}
+port link-type access
+port access vlan {{ vlan_id }}
+{% if description %}description {{ description }}{% endif %}
+{% if admin_state == "up" %}undo shutdown{% else %}shutdown{% endif %}
+quit
+quit
+

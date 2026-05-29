@@ -1,0 +1,9 @@
+vlan {{ vlan_id }}
+untagged {{ interface }}
+exit
+{% if description -%}
+interface {{ interface }}
+name {{ description }}
+exit
+{% endif -%}
+

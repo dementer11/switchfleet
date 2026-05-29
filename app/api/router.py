@@ -1,0 +1,14 @@
+from __future__ import annotations
+
+from fastapi import APIRouter
+
+from app.api.v1 import audit, backups, credentials, devices, health, jobs
+
+api_router = APIRouter(prefix="/api/v1")
+api_router.include_router(health.router, tags=["system"])
+api_router.include_router(devices.router, prefix="/devices", tags=["devices"])
+api_router.include_router(credentials.router, prefix="/credentials", tags=["credentials"])
+api_router.include_router(backups.router, tags=["backups"])
+api_router.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
+api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
+

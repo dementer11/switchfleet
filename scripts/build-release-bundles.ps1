@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.1.0",
+    [string]$Version = "0.2.0",
     [string]$OutDir = "dist",
     [string]$PythonExe = "python",
     [string]$PythonEmbedVersion = "3.12.10",
@@ -12,6 +12,24 @@ $OutPath = Join-Path $RepoRoot $OutDir
 $BuildRoot = Join-Path $OutPath "release-build"
 $WheelRoot = Join-Path $BuildRoot "wheelhouse"
 $SupportedPythonVersions = @("310", "311", "312", "313")
+$RuntimeRequirements = @(
+    "alembic>=1.13",
+    "celery>=5.4",
+    "cryptography>=42",
+    "fastapi>=0.115",
+    "jinja2>=3.1",
+    "netmiko>=4.4",
+    "openpyxl>=3.1",
+    "paramiko>=3.4",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "redis>=5",
+    "scrapli>=2024.7.30",
+    "sqlalchemy>=2.0",
+    "structlog>=24.4",
+    "uvicorn[standard]>=0.30"
+)
 
 function Invoke-Step($Name, [scriptblock]$Body) {
     Write-Host "==> $Name"
@@ -76,8 +94,14 @@ function Copy-ProjectFiles($Target) {
     New-Item -ItemType Directory -Force -Path $Target | Out-Null
     Copy-Item -LiteralPath (Join-Path $RepoRoot "README.md") -Destination $Target
     Copy-Item -LiteralPath (Join-Path $RepoRoot "pyproject.toml") -Destination $Target
+    Copy-Item -LiteralPath (Join-Path $RepoRoot ".env.example") -Destination $Target
+    Copy-Item -LiteralPath (Join-Path $RepoRoot "Dockerfile") -Destination $Target
+    Copy-Item -LiteralPath (Join-Path $RepoRoot "docker-compose.yml") -Destination $Target
+    Copy-Item -LiteralPath (Join-Path $RepoRoot "alembic.ini") -Destination $Target
+    Copy-Item -LiteralPath (Join-Path $RepoRoot "app") -Destination $Target -Recurse
     Copy-Item -LiteralPath (Join-Path $RepoRoot "src") -Destination $Target -Recurse
     Copy-Item -LiteralPath (Join-Path $RepoRoot "docs") -Destination $Target -Recurse
+    Copy-Item -LiteralPath (Join-Path $RepoRoot "alembic") -Destination $Target -Recurse
 }
 
 function Download-Wheelhouse($PlatformName, $PlatformTag, $PythonVersion) {
@@ -89,7 +113,7 @@ function Download-Wheelhouse($PlatformName, $PlatformTag, $PythonVersion) {
         --platform $PlatformTag `
         --implementation cp `
         --python-version $PythonVersion `
-        "paramiko>=3.4" "openpyxl>=3.1"
+        $RuntimeRequirements
     if ($LASTEXITCODE -ne 0) {
         throw "pip download failed for $PlatformName cp$PythonVersion"
     }
@@ -140,9 +164,10 @@ $findLinks += @("--find-links", (Join-Path $PSScriptRoot "wheelhouse"))
 Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot "wheelhouse") -Directory -Recurse | ForEach-Object {
     $findLinks += @("--find-links", $_.FullName)
 }
-& $venvPython -m pip install --no-index @findLinks "netops-orchestrator[xlsx]"
+& $venvPython -m pip install --no-index @findLinks "netops-orchestrator"
 if ($LASTEXITCODE -ne 0) { throw "Offline install failed" }
 Set-Content -LiteralPath (Join-Path $PSScriptRoot "switchfleet.cmd") -Encoding ascii -Value "@echo off`r`n`"$venvPython`" -m netops_orchestrator.cli %*`r`n"
+Set-Content -LiteralPath (Join-Path $PSScriptRoot "switchfleet-api.cmd") -Encoding ascii -Value "@echo off`r`n`"$venvPython`" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 %*`r`n"
 Write-Host "Installed. Run: .\switchfleet.cmd --help"
 '@
     Set-Content -LiteralPath (Join-Path $root "install.cmd") -Encoding ascii -Value '@echo off
@@ -183,12 +208,17 @@ FIND_LINKS+=(--find-links "$SCRIPT_DIR/wheelhouse")
 while IFS= read -r -d '' dir; do
   FIND_LINKS+=(--find-links "$dir")
 done < <(find "$SCRIPT_DIR/wheelhouse" -type d -print0)
-"$VENV_PY" -m pip install --no-index "${FIND_LINKS[@]}" "netops-orchestrator[xlsx]"
+"$VENV_PY" -m pip install --no-index "${FIND_LINKS[@]}" "netops-orchestrator"
 cat > "$SCRIPT_DIR/switchfleet" <<EOF
 #!/usr/bin/env bash
 exec "$VENV_PY" -m netops_orchestrator.cli "\$@"
 EOF
 chmod +x "$SCRIPT_DIR/switchfleet"
+cat > "$SCRIPT_DIR/switchfleet-api" <<EOF
+#!/usr/bin/env bash
+exec "$VENV_PY" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 "\$@"
+EOF
+chmod +x "$SCRIPT_DIR/switchfleet-api"
 echo "Installed. Run: ./switchfleet --help"
 '@
     Set-Content -LiteralPath (Join-Path $root "README-LINUX.txt") -Encoding utf8 -Value "Offline Linux install:`n1. tar -xzf archive.`n2. cd extracted directory.`n3. ./install.sh.`n4. ./switchfleet --help.`n"
@@ -234,12 +264,17 @@ FIND_LINKS+=(--find-links "$SCRIPT_DIR/wheelhouse")
 while IFS= read -r -d '' dir; do
   FIND_LINKS+=(--find-links "$dir")
 done < <(find "$SCRIPT_DIR/wheelhouse" -type d -print0)
-"$VENV_PY" -m pip install --no-index "${FIND_LINKS[@]}" "netops-orchestrator[xlsx]"
+"$VENV_PY" -m pip install --no-index "${FIND_LINKS[@]}" "netops-orchestrator"
 cat > "$SCRIPT_DIR/switchfleet" <<EOF
 #!/usr/bin/env bash
 exec "$VENV_PY" -m netops_orchestrator.cli "\$@"
 EOF
 chmod +x "$SCRIPT_DIR/switchfleet"
+cat > "$SCRIPT_DIR/switchfleet-api" <<EOF
+#!/usr/bin/env bash
+exec "$VENV_PY" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 "\$@"
+EOF
+chmod +x "$SCRIPT_DIR/switchfleet-api"
 echo "Installed. Run: ./switchfleet --help"
 '@
     Set-Content -LiteralPath (Join-Path $root "install.sh") -Encoding ascii -Value @'
@@ -265,7 +300,7 @@ if (-not $SkipPortable) {
         Expand-Archive -LiteralPath $embedZip -DestinationPath $pythonDir -Force
         New-Item -ItemType Directory -Force -Path (Join-Path $pythonDir "Lib\site-packages") | Out-Null
         Copy-ProjectFiles $appDir
-        & $PythonExe -m pip install --target (Join-Path $pythonDir "Lib\site-packages") "paramiko>=3.4" "openpyxl>=3.1"
+        & $PythonExe -m pip install --target (Join-Path $pythonDir "Lib\site-packages") $RuntimeRequirements
         if ($LASTEXITCODE -ne 0) {
             throw "Portable dependency install failed"
         }
@@ -275,6 +310,7 @@ if (-not $SkipPortable) {
 python312.zip
 .
 Lib\site-packages
+..\app
 ..\app\src
 import site
 "@
@@ -282,6 +318,10 @@ import site
         Set-Content -LiteralPath (Join-Path $root "switchfleet.cmd") -Encoding ascii -Value '@echo off
 set "ROOT=%~dp0"
 "%ROOT%python\python.exe" -m netops_orchestrator.cli %*
+'
+        Set-Content -LiteralPath (Join-Path $root "switchfleet-api.cmd") -Encoding ascii -Value '@echo off
+set "ROOT=%~dp0"
+"%ROOT%python\python.exe" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 %*
 '
         Set-Content -LiteralPath (Join-Path $root "README-PORTABLE.txt") -Encoding utf8 -Value "Windows portable:`r`n1. Extract archive anywhere.`r`n2. Run switchfleet.cmd --help.`r`nNo Python installation is required.`r`n"
         Compress-Archive -Path (Join-Path $root "*") -DestinationPath (Join-Path $OutPath "switchfleet-windows-portable-$Version.zip") -Force

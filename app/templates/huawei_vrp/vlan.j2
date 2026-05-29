@@ -1,0 +1,10 @@
+system-view
+{% if state == "present" -%}
+vlan {{ vlan_id }}
+{% if name %}description {{ name }}{% endif %}
+quit
+{% else -%}
+undo vlan {{ vlan_id }}
+quit
+{% endif -%}
+

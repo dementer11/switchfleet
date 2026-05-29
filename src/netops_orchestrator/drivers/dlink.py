@@ -11,7 +11,7 @@ class DlinkDesDriver(CliDriver):
     def change_password(self, username: str, new_password: str, level: AccessLevel = AccessLevel.admin):
         commands = [f"config account {username} password {new_password}"]
         warnings = ["D-Link DES syntax varies strongly by firmware; verify on device before batch execution."]
-        return self.plan("password", commands, warnings)
+        return self.plan("password", commands, warnings, secret_commands=set(commands))
 
     def configure_acl(self, acl_name: str, rules: list[AclRule]):
         raise NotImplementedError("ACL is not enabled for D-Link DES driver yet")

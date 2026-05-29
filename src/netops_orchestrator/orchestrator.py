@@ -52,13 +52,15 @@ def apply_plan(
                 "device": plan.device.ip_address,
                 "label": plan.device.label,
                 "driver": plan.driver,
+                "transport": plan.transport,
                 "operation": plan.operation,
-                "commands_count": len(plan.all_commands),
+                "commands_count": len(plan.execution_steps),
             },
         )
 
     results: list[CommandResult] = []
-    if not plan.all_commands:
+    steps = plan.execution_steps
+    if not steps:
         if audit:
             audit.write(
                 "plan_skipped",
@@ -72,24 +74,48 @@ def apply_plan(
             )
         return results
 
-    transport.connect()
+    connected = False
     try:
-        for command in plan.all_commands:
-            result = transport.run(command)
-            results.append(result)
-            if audit:
-                audit.write(
-                    "command_result",
-                    {
-                        "device": plan.device.ip_address,
-                        "command": command,
-                        "failed": result.failed,
-                    },
-                )
-            if result.failed and stop_on_error:
-                break
+        transport.connect()
+        connected = True
+        if hasattr(transport, "run_steps"):
+            results = transport.run_steps(steps, stop_on_error=stop_on_error)
+        else:
+            for step in steps:
+                result = transport.run(step.command)
+                results.append(result)
+                if result.failed and stop_on_error:
+                    break
+    except Exception as exc:
+        if audit:
+            audit.write(
+                "plan_error",
+                {
+                    "device": plan.device.ip_address,
+                    "label": plan.device.label,
+                    "driver": plan.driver,
+                    "operation": plan.operation,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
+        raise
     finally:
-        transport.close()
+        if connected:
+            transport.close()
+
+    if audit:
+        for result in results:
+            audit.write(
+                "command_result",
+                {
+                    "device": plan.device.ip_address,
+                    "command": result.redacted_command or result.command,
+                    "phase": result.phase,
+                    "failed": result.failed,
+                    "error": result.error,
+                },
+            )
 
     if audit:
         audit.write(
@@ -103,7 +129,12 @@ def apply_plan(
     return results
 
 
-def backup_config(plan: CommandPlan, transport: CliTransport, output_dir: str | Path) -> Path | None:
+def backup_config(
+    plan: CommandPlan,
+    transport: CliTransport,
+    output_dir: str | Path,
+    fail_on_error: bool = False,
+) -> Path | None:
     if plan.operation != "backup":
         raise ValueError(f"Expected backup plan, got {plan.operation}")
     if not plan.all_commands:
@@ -115,6 +146,8 @@ def backup_config(plan: CommandPlan, transport: CliTransport, output_dir: str | 
     target_dir.mkdir(parents=True, exist_ok=True)
     path = target_dir / _backup_filename(plan)
     path.write_text(output, encoding="utf-8")
+    if fail_on_error and any(result.failed for result in results):
+        raise RuntimeError(f"Backup command failed for {plan.device.ip_address}; output saved to {path}")
     return path
 
 
@@ -130,6 +163,10 @@ def _format_backup_output(plan: CommandPlan, results: list[CommandResult]) -> st
     ]
     for result in results:
         lines.append(f"### command: {result.command}")
+        if result.failed:
+            lines.append("# failed: true")
+        if result.error:
+            lines.append(f"# error: {result.error}")
         lines.append(result.output.rstrip())
         lines.append("")
     return "\n".join(lines)

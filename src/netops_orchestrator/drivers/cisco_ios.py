@@ -6,29 +6,28 @@ from .base import CliDriver, privilege_level
 
 class CiscoIosDriver(CliDriver):
     name = "cisco_ios"
+    netmiko_device_type = "cisco_ios"
 
     def change_password(self, username: str, new_password: str, level: AccessLevel = AccessLevel.admin):
         commands = [
-            "configure terminal",
             f"username {username} privilege {privilege_level(level)} secret {new_password}",
         ]
         if level == AccessLevel.enable:
             commands.append(f"enable secret {new_password}")
-        commands.append("end")
-        return self.plan("password", commands)
+        return self.config_plan("password", commands, secret_commands=set(commands))
 
     def configure_acl(self, acl_name: str, rules: list[AclRule]):
-        commands = ["configure terminal", f"ip access-list extended {acl_name}"]
+        commands = [f"ip access-list extended {acl_name}"]
         commands.extend(
             f"{rule.sequence} {rule.action} {rule.protocol} {rule.source} {rule.destination}"
             + (f" {rule.extra}" if rule.extra else "")
             for rule in rules
         )
-        commands.extend(["exit", "end"])
-        return self.plan("acl", commands)
+        commands.append("exit")
+        return self.config_plan("acl", commands, verify_commands=[f"show access-lists {acl_name}"])
 
     def configure_vlan(self, change: VlanChange):
-        commands = ["configure terminal", f"vlan {change.vlan_id}"]
+        commands = [f"vlan {change.vlan_id}"]
         if change.name:
             commands.append(f"name {change.name}")
         commands.append("exit")
@@ -39,11 +38,10 @@ class CiscoIosDriver(CliDriver):
             else:
                 commands.append(f"switchport trunk allowed vlan add {change.vlan_id}")
             commands.append("exit")
-        commands.append("end")
-        return self.plan("vlan", commands)
+        return self.config_plan("vlan", commands, verify_commands=[f"show vlan id {change.vlan_id}"])
 
     def configure_port(self, change: PortChange):
-        commands = ["configure terminal", f"interface {change.interface}"]
+        commands = [f"interface {change.interface}"]
         if change.description is not None:
             commands.append(f"description {change.description}")
         if change.access_vlan is not None:
@@ -53,8 +51,8 @@ class CiscoIosDriver(CliDriver):
             commands.extend(["switchport mode trunk", f"switchport trunk allowed vlan {vlans}"])
         if change.enabled is not None:
             commands.append("no shutdown" if change.enabled else "shutdown")
-        commands.extend(["exit", "end"])
-        return self.plan("port", commands)
+        commands.append("exit")
+        return self.config_plan("port", commands, verify_commands=[f"show running-config interface {change.interface}"])
 
     def backup_config(self):
         return self.plan("backup", ["terminal length 0", "show running-config"], read_only=True)

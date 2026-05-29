@@ -13,7 +13,8 @@ class QtechQswDriver(CliDriver):
             f"username {username} privilege {privilege_level(level)} password 0 {new_password}",
             "exit",
         ]
-        return self.plan("password", commands)
+        secrets = {command for command in commands if new_password in command}
+        return self.config_plan("password", commands, secret_commands=secrets)
 
     def configure_acl(self, acl_name: str, rules: list[AclRule]):
         commands = ["config", f"ip access-list extended {acl_name}"]
@@ -23,7 +24,7 @@ class QtechQswDriver(CliDriver):
             for rule in rules
         )
         commands.extend(["exit", "exit"])
-        return self.plan("acl", commands)
+        return self.config_plan("acl", commands, verify_commands=[f"show access-lists {acl_name}"])
 
     def configure_vlan(self, change: VlanChange):
         commands = ["config", f"vlan {change.vlan_id}"]
@@ -35,7 +36,7 @@ class QtechQswDriver(CliDriver):
             else:
                 commands.append(f"switchport trunk allowed vlan add {change.vlan_id}")
         commands.extend(["exit", "exit"])
-        return self.plan("vlan", commands)
+        return self.config_plan("vlan", commands, verify_commands=[f"show vlan id {change.vlan_id}"])
 
     def configure_port(self, change: PortChange):
         commands = ["config", f"interface {change.interface}"]
@@ -49,7 +50,7 @@ class QtechQswDriver(CliDriver):
         if change.enabled is not None:
             commands.append("no shutdown" if change.enabled else "shutdown")
         commands.extend(["exit", "exit"])
-        return self.plan("port", commands)
+        return self.config_plan("port", commands, verify_commands=[f"show running-config interface {change.interface}"])
 
     def backup_config(self):
         return self.plan("backup", ["terminal length 0", "show running-config"], read_only=True)

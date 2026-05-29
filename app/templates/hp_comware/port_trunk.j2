@@ -1,0 +1,10 @@
+system-view
+interface {{ interface }}
+port link-type trunk
+port trunk permit vlan {{ allowed_vlans }}
+{% if native_vlan %}port trunk pvid vlan {{ native_vlan }}{% endif %}
+{% if description %}description {{ description }}{% endif %}
+{% if admin_state == "up" %}undo shutdown{% else %}shutdown{% endif %}
+quit
+quit
+
