@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import uuid4
+
 from fastapi.testclient import TestClient
 
 from app.db.session import SessionLocal
@@ -10,21 +12,25 @@ from app.services.audit_service import AuditService
 
 
 HEADERS = {"X-Actor": "sec", "X-Roles": "security_admin"}
-SECRET = "UltraSecret123!"
 
 
-def _payload() -> dict[str, object]:
+def _secret() -> str:
+    return f"runtime-secret-{uuid4().hex}"
+
+
+def _payload(secret: str) -> dict[str, object]:
     return {
         "requested_by": "sec",
         "devices": [{"ip_address": "10.50.0.1", "vendor": "Cisco", "model": "Cat2960-48"}],
         "username": "admin",
-        "new_password": SECRET,
+        "new_password": secret,
     }
 
 
 def test_password_change_never_persists_plaintext_in_job_task_or_audit() -> None:
     client = TestClient(app)
-    job_id = client.post("/api/v1/jobs/password-change", headers=HEADERS, json=_payload()).json()["job_id"]
+    secret = _secret()
+    job_id = client.post("/api/v1/jobs/password-change", headers=HEADERS, json=_payload(secret)).json()["job_id"]
     client.post(f"/api/v1/jobs/{job_id}/approve", headers=HEADERS)
     run = client.post(f"/api/v1/jobs/{job_id}/run-next-batch", headers=HEADERS)
 
@@ -36,6 +42,5 @@ def test_password_change_never_persists_plaintext_in_job_task_or_audit() -> None
     rendered = str(job.input_payload) + str(job.dry_run) + str(task.commands) + str(task.dry_run_device)
     rendered += str(task.sanitized_output) + str(task.error) + audit_text
 
-    assert SECRET not in rendered
+    assert secret not in rendered
     assert "<redacted>" in str(task.commands) or "<redacted>" in str(task.sanitized_output)
-

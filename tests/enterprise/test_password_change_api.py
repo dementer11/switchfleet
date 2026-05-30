@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+from uuid import uuid4
+
 from fastapi.testclient import TestClient
 
 from app.main import app
 
 
 HEADERS = {"X-Actor": "sec", "X-Roles": "security_admin"}
-SECRET = "UltraSecret123!"
+
+
+def _secret() -> str:
+    return f"runtime-secret-{uuid4().hex}"
 
 
 def _devices(count: int = 3) -> list[dict[str, str]]:
@@ -16,22 +21,23 @@ def _devices(count: int = 3) -> list[dict[str, str]]:
     ]
 
 
-def _payload(count: int = 3) -> dict[str, object]:
+def _payload(count: int = 3, secret: str | None = None) -> dict[str, object]:
     return {
         "requested_by": "sec",
         "devices": _devices(count),
         "username": "admin",
-        "new_password": SECRET,
+        "new_password": secret or _secret(),
     }
 
 
 def test_password_change_job_api_returns_masked_dry_run_and_rollout_plan() -> None:
     client = TestClient(app)
+    secret = _secret()
 
-    created = client.post("/api/v1/jobs/password-change", headers=HEADERS, json=_payload())
+    created = client.post("/api/v1/jobs/password-change", headers=HEADERS, json=_payload(secret=secret))
 
     assert created.status_code == 202
-    assert SECRET not in created.text
+    assert secret not in created.text
     body = created.json()
     assert body["status"] == "pending_approval"
     assert body["approval_required"] is True
@@ -52,7 +58,7 @@ def test_password_change_job_api_returns_masked_dry_run_and_rollout_plan() -> No
 
     assert dry_run.status_code == 200
     assert rollout_plan.status_code == 200
-    assert SECRET not in dry_run.text
+    assert secret not in dry_run.text
     assert rollout_plan.json()["job_id"] == job_id
 
 
@@ -66,4 +72,3 @@ def test_password_change_job_requires_security_permission() -> None:
     )
 
     assert response.status_code == 403
-

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import uuid4
+
 from fastapi.testclient import TestClient
 
 from app.db.session import SessionLocal
@@ -13,6 +15,10 @@ from app.repositories.password_rollout import PasswordRolloutRepository
 HEADERS = {"X-Actor": "sec", "X-Roles": "security_admin"}
 
 
+def _secret() -> str:
+    return f"runtime-secret-{uuid4().hex}"
+
+
 def _payload(device_count: int = 3) -> dict[str, object]:
     return {
         "requested_by": "sec",
@@ -21,7 +27,7 @@ def _payload(device_count: int = 3) -> dict[str, object]:
             for index in range(1, device_count + 1)
         ],
         "username": "admin",
-        "new_password": "UltraSecret123!",
+        "new_password": _secret(),
     }
 
 
@@ -88,4 +94,3 @@ def test_failed_canary_batch_stops_later_batches_by_default() -> None:
     assert failed.json()["status"] == "failed"
     assert blocked.status_code == 409
     assert JobRepository(SessionLocal()).get(job_id).status == "failed"
-

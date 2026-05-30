@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -15,6 +17,10 @@ from app.repositories.jobs import JobRepository
 HEADERS = {"X-Actor": "sec", "X-Roles": "security_admin"}
 
 
+def _secret() -> str:
+    return f"runtime-secret-{uuid4().hex}"
+
+
 def _payload(
     vendor: str = "Cisco",
     model: str = "Cat2960-48",
@@ -24,7 +30,7 @@ def _payload(
         "requested_by": "sec",
         "devices": [{"ip_address": "10.40.0.1", "vendor": vendor, "model": model}],
         "username": "admin",
-        "new_password": "UltraSecret123!",
+        "new_password": _secret(),
     }
     payload.update(extra)
     return payload

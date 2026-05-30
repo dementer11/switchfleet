@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from uuid import uuid4
 
 from app.core.exceptions import NotFoundError
 from app.db.session import SessionLocal
@@ -14,10 +15,13 @@ from app.services.password_rollout_service import normalize_canary_plan
 
 
 HEADERS = {"X-Actor": "sec", "X-Roles": "security_admin"}
-SECRET = "UltraSecret123!"
 
 
-def _payload() -> dict[str, object]:
+def _secret() -> str:
+    return f"runtime-secret-{uuid4().hex}"
+
+
+def _payload(secret: str | None = None) -> dict[str, object]:
     return {
         "requested_by": "sec",
         "devices": [
@@ -26,7 +30,7 @@ def _payload() -> dict[str, object]:
             {"ip_address": "10.20.0.3", "vendor": "HPE", "model": "HPE 1910-24G"},
         ],
         "username": "admin",
-        "new_password": SECRET,
+        "new_password": secret or _secret(),
     }
 
 
@@ -39,7 +43,8 @@ def test_default_canary_plan_is_one_five_twenty_then_rest() -> None:
 
 def test_password_change_job_persists_secret_rollout_tasks_without_plaintext() -> None:
     client = TestClient(app)
-    job_id = client.post("/api/v1/jobs/password-change", headers=HEADERS, json=_payload()).json()["job_id"]
+    secret_value = _secret()
+    job_id = client.post("/api/v1/jobs/password-change", headers=HEADERS, json=_payload(secret_value)).json()["job_id"]
     session = SessionLocal()
 
     job = JobRepository(session).get(job_id)
@@ -53,9 +58,9 @@ def test_password_change_job_persists_secret_rollout_tasks_without_plaintext() -
     assert job.status == "pending_approval"
     assert len(tasks) == 3
     assert [batch.batch_size for batch in batches] == [1, 2]
-    assert secret.encrypted_new_password != SECRET
-    assert SECRET not in rendered_job
-    assert SECRET not in rendered_tasks
+    assert secret.encrypted_new_password != secret_value
+    assert secret_value not in rendered_job
+    assert secret_value not in rendered_tasks
 
 
 def test_password_change_secret_is_removed_after_successful_rollout() -> None:
@@ -72,4 +77,3 @@ def test_password_change_secret_is_removed_after_successful_rollout() -> None:
     assert second_batch.json()["status"] == "succeeded"
     with pytest.raises(NotFoundError):
         PasswordChangeSecretRepository(SessionLocal()).get_for_job(job_id)
-

@@ -107,7 +107,7 @@ $body = @{
     @{ ip_address = "10.0.0.2"; vendor = "Huawei"; model = "S5735" }
   )
   username = "admin"
-  new_password = "new-secret-value"
+  new_password = $env:NCP_NEW_PASSWORD
 } | ConvertTo-Json -Depth 5
 
 Invoke-RestMethod -Method Post `
@@ -165,7 +165,7 @@ Invoke-RestMethod -Method Post `
   -Uri "http://127.0.0.1:8000/api/v1/credentials" `
   -Headers @{ "X-Actor" = "sec"; "X-Roles" = "security_admin" } `
   -ContentType "application/json" `
-  -Body '{"name":"core","username":"admin","password":"secret-value"}'
+  -Body (@{ name = "core"; username = "admin"; password = $env:NCP_CREDENTIAL_PASSWORD } | ConvertTo-Json)
 ```
 
 API responses never return password material.

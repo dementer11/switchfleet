@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import ClassVar
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,12 +21,16 @@ from app.transports.base import CommandExecutionResult
 HEADERS = {"X-Actor": "sec", "X-Roles": "security_admin"}
 
 
-def _payload() -> dict[str, object]:
+def _secret() -> str:
+    return f"runtime-secret-{uuid4().hex}"
+
+
+def _payload(secret: str | None = None) -> dict[str, object]:
     return {
         "requested_by": "sec",
         "devices": [{"ip_address": "10.60.0.1", "vendor": "Cisco", "model": "Cat2960-48"}],
         "username": "admin",
-        "new_password": "UltraSecret123!",
+        "new_password": secret or _secret(),
     }
 
 
@@ -35,9 +40,10 @@ def test_credential_verification_blocks_real_transport_when_real_apply_disabled(
         DeviceInput(ip_address="10.60.0.10", vendor="Cisco", model="Cat2960-48")
     )
     verifier = CredentialVerificationService(Settings(environment="test", allow_real_device_apply=False))
+    secret = _secret()
 
     with pytest.raises(SafetyError, match="Real credential verification is disabled"):
-        verifier.verify_new_credential(device, "admin", "UltraSecret123!", transport_type="netmiko")
+        verifier.verify_new_credential(device, "admin", secret, transport_type="netmiko")
 
 
 def test_credential_verification_can_simulate_failure_for_lab_regression() -> None:
@@ -49,7 +55,7 @@ def test_credential_verification_can_simulate_failure_for_lab_regression() -> No
     result = CredentialVerificationService(Settings(environment="test")).verify_new_credential(
         device,
         "admin",
-        "UltraSecret123!",
+        _secret(),
         transport_type="dummy",
         simulate_failure=True,
     )
@@ -101,4 +107,3 @@ def test_password_save_config_is_not_called_when_new_credential_verification_fai
     assert "Credential verification failed" in updated_task.error
     sent_commands = [command for batch in CapturePasswordTransport.sent_config_batches for command in batch]
     assert not any(command in sent_commands for command in save_commands)
-
