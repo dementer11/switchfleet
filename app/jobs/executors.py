@@ -21,6 +21,7 @@ from app.services.audit_service import AuditService
 from app.services.backup_service import BackupService
 from app.services.credential_verification_service import CredentialVerificationService
 from app.services.driver_resolver import DriverResolverService
+from app.services.lab_validation_service import LabValidationService
 from app.services.lock_service import LockService
 from app.transports.base import Transport
 from app.transports.dummy_transport import DummyTransport
@@ -74,6 +75,7 @@ class JobExecutionService:
         self.backup_service = backup_service or BackupService(self.session, audit=self.audit)
         self.lock_service = lock_service or LockService(self.session, audit=self.audit)
         self.verifier = CredentialVerificationService(self.settings)
+        self.lab_validation = LabValidationService(self.session, settings=self.settings)
         self.resolver = DriverResolverService()
         self._acquired_locks: set[str] = set()
 
@@ -182,6 +184,13 @@ class JobExecutionService:
             raise SafetyError("Verification commands are required before apply")
         if not self.settings.allow_real_device_apply and dry_run.get("transport") in {"scrapli", "netmiko"}:
             raise SafetyError("Real device apply is disabled by NCP_ALLOW_REAL_DEVICE_APPLY=false")
+        if dry_run.get("transport") in {"scrapli", "netmiko"}:
+            self.lab_validation.assert_real_apply_allowed(
+                vendor=str(dry_run.get("vendor") or ""),
+                model=str(dry_run.get("model") or ""),
+                driver_name=str(dry_run.get("driver") or ""),
+                capability="vlan_change",
+            )
 
         self.lock_service.acquire(str(task.device_id), str(job.id), actor=actor)
         self._acquired_locks.add(str(task.device_id))
@@ -302,6 +311,13 @@ class JobExecutionService:
             raise SafetyError("Credential verification is required before save")
         if not self.settings.allow_real_device_apply and dry_run.get("transport") in {"scrapli", "netmiko"}:
             raise SafetyError("Real device apply is disabled by NCP_ALLOW_REAL_DEVICE_APPLY=false")
+        if dry_run.get("transport") in {"scrapli", "netmiko"}:
+            self.lab_validation.assert_real_apply_allowed(
+                vendor=str(dry_run.get("vendor") or ""),
+                model=str(dry_run.get("model") or ""),
+                driver_name=str(dry_run.get("driver") or ""),
+                capability="password_change",
+            )
 
         username = str(job.input_payload.get("username") or "")
         if not username:

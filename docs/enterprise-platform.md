@@ -51,6 +51,9 @@ The SQLAlchemy model set covers:
 - `password_rollout_batches`
 - `password_rollout_batch_tasks`
 - `password_change_secrets`
+- `lab_driver_validations`
+- `lab_validation_transcripts`
+- `lab_validation_checklists`
 
 UUID primary keys are used for operational entities. Capabilities, dry-run payloads, tags, commands, and audit metadata use JSONB-compatible fields.
 
@@ -67,10 +70,11 @@ Database-backed runtime objects:
 - encrypted config backups and hashes;
 - per-device locks with expiration.
 - password rollout batch state and encrypted temporary password-change secrets.
+- lab validation approvals, sanitized transcripts, and validation checklists.
 
 Repositories live under `app/repositories/` and are the only layer that performs SQLAlchemy queries for enterprise runtime objects. Routers do not contain SQLAlchemy queries.
 
-Alembic revision `20260530_0001` creates the core enterprise tables and includes a downgrade path. Revision `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change execution secrets. The migrations use PostgreSQL-native UUID, JSONB, and INET types on PostgreSQL and portable UUID string, JSON, and string IP columns on SQLite test databases.
+Alembic revision `20260530_0001` creates the core enterprise tables and includes a downgrade path. Revision `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change execution secrets. Revision `20260530_0003` adds lab validation approvals, sanitized transcripts, and checklists. The migrations use PostgreSQL-native UUID, JSONB, and INET types on PostgreSQL and portable UUID string, JSON, and string IP columns on SQLite test databases.
 
 ## Change Workflow
 
@@ -249,6 +253,38 @@ Tasks that violate a safety gate are marked `failed` or `skipped` with a sanitiz
 Real network apply is disabled by default through `NCP_ALLOW_REAL_DEVICE_APPLY=false`. This protects production devices while driver templates are still being validated against real firmware.
 
 The second-stage executor runs only through `DummyTransport`. If a dry-run device entry requests `scrapli` or `netmiko` transport while real apply is disabled, execution is blocked with a clear safety error.
+
+## Lab Validation Gate
+
+Lab validation is a database-backed approval record for a specific vendor, optional model pattern, driver, and capability. It is a future real-apply precondition, not a real-apply implementation.
+
+The lab validation service allows operators to:
+
+- create validation requests;
+- attach sanitized command transcripts;
+- maintain checklist items;
+- approve, reject, or expire validations;
+- enforce a gate before future destructive real transport execution.
+
+When a future real-transport path is attempted, the gate requires:
+
+- `NCP_ALLOW_REAL_DEVICE_APPLY=true`;
+- an approved validation with matching vendor, driver, capability, and model pattern;
+- a validation that is not expired.
+
+If any condition fails, execution raises `SafetyError`. Even when the gate passes, the existing controls still apply: dry-run, approval, backup, verification, locks, audit, and save-after-verification. Current production execution still uses `DummyTransport`; this framework does not enable real Scrapli or Netmiko apply.
+
+Lab validation endpoints:
+
+- `POST /api/v1/lab-validations`
+- `GET /api/v1/lab-validations`
+- `GET /api/v1/lab-validations/{validation_id}`
+- `POST /api/v1/lab-validations/{validation_id}/transcript`
+- `POST /api/v1/lab-validations/{validation_id}/approve`
+- `POST /api/v1/lab-validations/{validation_id}/reject`
+- `POST /api/v1/lab-validations/{validation_id}/expire`
+- `GET /api/v1/lab-validations/{validation_id}/checklist`
+- `PATCH /api/v1/lab-validations/{validation_id}/checklist/{item_id}`
 
 ## How To Enable Lab-Only Apply Safely
 

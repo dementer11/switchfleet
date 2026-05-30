@@ -4,6 +4,7 @@ from app.db.models.backup import ConfigBackupModel
 from app.db.models.credential import Credential, CredentialAssignment
 from app.db.models.device import Device
 from app.db.models.job import Job, JobTask
+from app.db.models.lab_validation import LabDriverValidation, LabValidationChecklistItem, LabValidationTranscript
 from app.db.models.lock import DeviceLock
 from app.db.models.password import PasswordChangeSecret, PasswordRolloutBatch, PasswordRolloutBatchTask
 from app.db.models.port import Port
@@ -20,6 +21,9 @@ __all__ = [
     "DeviceLock",
     "Job",
     "JobTask",
+    "LabDriverValidation",
+    "LabValidationChecklistItem",
+    "LabValidationTranscript",
     "PasswordChangeSecret",
     "PasswordRolloutBatch",
     "PasswordRolloutBatchTask",
