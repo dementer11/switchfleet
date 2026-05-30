@@ -9,12 +9,18 @@ from app.db.models.job import Job, JobTask
 from app.db.session import SessionLocal
 from app.drivers.base import BaseNetworkDriver, CommandResult
 from app.core.config import Settings, get_settings
+from app.core.crypto import FernetCredentialCipher
 from app.core.exceptions import SafetyError
+from app.repositories.devices import DeviceRepository
 from app.repositories.job_tasks import JobTaskRepository
 from app.repositories.jobs import JobRepository
+from app.repositories.password_change_secrets import PasswordChangeSecretRepository
+from app.schemas.device import DeviceInput
 from app.schemas.job import JobRunResponse
 from app.services.audit_service import AuditService
 from app.services.backup_service import BackupService
+from app.services.credential_verification_service import CredentialVerificationService
+from app.services.driver_resolver import DriverResolverService
 from app.services.lock_service import LockService
 from app.transports.base import Transport
 from app.transports.dummy_transport import DummyTransport
@@ -60,14 +66,21 @@ class JobExecutionService:
         self.session = session or SessionLocal()
         self.jobs = JobRepository(self.session)
         self.tasks = JobTaskRepository(self.session)
+        self.devices = DeviceRepository(self.session)
+        self.password_secrets = PasswordChangeSecretRepository(self.session)
         self.settings = settings or get_settings()
+        self.cipher = FernetCredentialCipher(self.settings.encryption_key())
         self.audit = audit or AuditService(self.session)
         self.backup_service = backup_service or BackupService(self.session, audit=self.audit)
         self.lock_service = lock_service or LockService(self.session, audit=self.audit)
+        self.verifier = CredentialVerificationService(self.settings)
+        self.resolver = DriverResolverService()
         self._acquired_locks: set[str] = set()
 
     def execute_job(self, job_id: str, actor: str) -> JobRunResponse:
         job = self._job(job_id)
+        if job.job_type == "password_change":
+            raise SafetyError("Password change jobs must be executed through canary rollout batches")
         if job.status == "cancelled":
             raise SafetyError("Cancelled job cannot be run")
         if job.approval_status != "approved":
@@ -210,6 +223,197 @@ class JobExecutionService:
                 raise SafetyError("Save config failed")
             task.sanitized_output = mask_secrets(
                 "\n".join(result.output for result in [*config_results, *verify_results, *save_results])
+            )
+            self.session.flush()
+        finally:
+            transport.close()
+
+    def execute_password_change_task(self, job_task_id: str, actor: str) -> str:
+        task = self._task(job_task_id)
+        job = self._job(str(task.job_id))
+        task.started_at = utcnow()
+        task.attempt += 1
+        task.status = "applying"
+        self.session.flush()
+        self.audit.write(
+            actor=actor,
+            action="password_task_started",
+            object_type="job_task",
+            object_id=str(task.id),
+            device_id=str(task.device_id),
+            job_id=str(job.id),
+        )
+        try:
+            self._execute_password_change_task_body(job, task, actor)
+            task.status = "succeeded"
+            self.session.flush()
+        except SafetyError as exc:
+            if task.status != "skipped":
+                task.status = "failed"
+            task.error = mask_secrets(str(exc))
+            self.session.flush()
+            self.audit.write(
+                actor=actor,
+                action="password_task_failed",
+                object_type="job_task",
+                object_id=str(task.id),
+                device_id=str(task.device_id),
+                job_id=str(job.id),
+                metadata={"error": task.error, "status": task.status},
+            )
+        except Exception as exc:
+            task.status = "failed"
+            task.error = mask_secrets(str(exc))
+            self.session.flush()
+            self.audit.write(
+                actor=actor,
+                action="password_task_failed",
+                object_type="job_task",
+                object_id=str(task.id),
+                device_id=str(task.device_id),
+                job_id=str(job.id),
+                metadata={"error": task.error, "status": task.status},
+            )
+        finally:
+            task.finished_at = utcnow()
+            self.session.flush()
+            device_id = str(task.device_id)
+            if device_id in self._acquired_locks:
+                self.lock_service.release(device_id, actor=actor)
+                self._acquired_locks.remove(device_id)
+        return task.status
+
+    def _execute_password_change_task_body(self, job: Job, task: JobTask, actor: str) -> None:
+        if job.job_type != "password_change":
+            raise SafetyError(f"Unsupported job type: {job.job_type}")
+        if job.status == "cancelled":
+            raise SafetyError("Job was cancelled")
+        if not job.dry_run:
+            raise SafetyError("Job has no dry-run payload")
+        if not bool(job.input_payload.get("backup_before_apply", True)):
+            raise SafetyError("backup_before_apply must be enabled")
+        if not bool(job.input_payload.get("verify_new_credential", True)):
+            raise SafetyError("verify_new_credential must be enabled")
+        dry_run = task.dry_run_device
+        if not dry_run.get("apply_supported", False):
+            task.status = "skipped"
+            raise SafetyError("Driver is not confirmed for destructive password apply")
+        if not dry_run.get("verification_required", False):
+            raise SafetyError("Credential verification is required before save")
+        if not self.settings.allow_real_device_apply and dry_run.get("transport") in {"scrapli", "netmiko"}:
+            raise SafetyError("Real device apply is disabled by NCP_ALLOW_REAL_DEVICE_APPLY=false")
+
+        username = str(job.input_payload.get("username") or "")
+        if not username:
+            raise SafetyError("Password change username is missing")
+        new_password = self.cipher.decrypt(self.password_secrets.get_for_job(job.id).encrypted_new_password)
+        device = self.devices.get(task.device_id)
+        device_input = DeviceInput(
+            hostname=device.hostname,
+            ip_address=str(device.ip_address),
+            vendor=device.vendor,
+            model=device.model,
+            site=device.site,
+            role=device.role,
+            tags=device.tags,
+        )
+        match = self.resolver.resolve(device_input)
+        driver = match.driver_class(host=str(device.ip_address))
+        plan = driver.change_local_user_password(username, new_password)
+        save_commands = driver.save_commands()
+
+        self.lock_service.acquire(str(task.device_id), str(job.id), actor=actor)
+        self._acquired_locks.add(str(task.device_id))
+        task.status = "backing_up"
+        self.session.flush()
+        backup = self.backup_service.create_backup(
+            device_id=str(task.device_id),
+            actor=actor,
+            job_task_id=str(task.id),
+            job_id=str(job.id),
+            config_text=f"! pre-password-change backup for {task.device_id}\n",
+        )
+        task.backup_id = uuid.UUID(backup.id)
+        self.session.flush()
+        self.audit.write(
+            actor=actor,
+            action="password_task_backup_created",
+            object_type="job_task",
+            object_id=str(task.id),
+            device_id=str(task.device_id),
+            job_id=str(job.id),
+            after={"backup_id": backup.id},
+        )
+
+        transport = DummyTransport()
+        task.status = "applying"
+        self.session.flush()
+        self.audit.write(
+            actor=actor,
+            action="password_task_apply_started",
+            object_type="job_task",
+            object_id=str(task.id),
+            device_id=str(task.device_id),
+            job_id=str(job.id),
+        )
+        transport.open()
+        try:
+            config_results = transport.send_config(plan.commands)
+            if not all(result.success for result in config_results):
+                raise SafetyError("One or more password change commands failed")
+            task.status = "verifying"
+            self.session.flush()
+            self.audit.write(
+                actor=actor,
+                action="password_task_credential_verification_started",
+                object_type="job_task",
+                object_id=str(task.id),
+                device_id=str(task.device_id),
+                job_id=str(job.id),
+            )
+            verified = self.verifier.verify_new_credential(
+                device,
+                username,
+                new_password,
+                transport_type=str(dry_run.get("transport", "dummy")),
+                simulate_failure=bool(dry_run.get("simulate_verification_failure", False)),
+            )
+            if not verified:
+                task.status = "failed"
+                self.session.flush()
+                self.audit.write(
+                    actor=actor,
+                    action="password_task_credential_verification_failed",
+                    object_type="job_task",
+                    object_id=str(task.id),
+                    device_id=str(task.device_id),
+                    job_id=str(job.id),
+                )
+                raise SafetyError("Credential verification failed")
+            self.audit.write(
+                actor=actor,
+                action="password_task_credential_verified",
+                object_type="job_task",
+                object_id=str(task.id),
+                device_id=str(task.device_id),
+                job_id=str(job.id),
+            )
+            task.status = "saving"
+            self.session.flush()
+            save_results = transport.send_config(save_commands)
+            if not all(result.success for result in save_results):
+                raise SafetyError("Save config failed")
+            self.audit.write(
+                actor=actor,
+                action="password_task_save_config_completed",
+                object_type="job_task",
+                object_id=str(task.id),
+                device_id=str(task.device_id),
+                job_id=str(job.id),
+            )
+            task.sanitized_output = mask_secrets(
+                "\n".join(result.output for result in [*config_results, *save_results]),
+                explicit_secrets=[new_password],
             )
             self.session.flush()
         finally:

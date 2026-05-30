@@ -10,7 +10,7 @@ from app.db.session import SessionLocal
 from app.repositories.devices import DeviceRepository
 from app.repositories.job_tasks import JobTaskRepository
 from app.repositories.jobs import JobRepository
-from app.schemas.job import JobCreateResponse, JobDryRunResponse, JobRead, JobTaskRead, VlanChangeJobRequest
+from app.schemas.job import DryRunResponse, JobCreateResponse, JobDryRunResponse, JobRead, JobTaskRead, VlanChangeJobRequest
 from app.services.audit_service import AuditService
 from app.services.change_planner import ChangePlanner
 
@@ -90,8 +90,13 @@ class JobService:
     def get_job(self, job_id: str) -> JobRead:
         return self._read_job(self._stored_job(job_id))
 
-    def get_dry_run(self, job_id: str) -> JobDryRunResponse:
-        return JobDryRunResponse.model_validate(self._stored_job(job_id).dry_run)
+    def get_dry_run(self, job_id: str) -> DryRunResponse:
+        job = self._stored_job(job_id)
+        if job.job_type == "password_change":
+            from app.schemas.job import PasswordChangeDryRunResponse
+
+            return PasswordChangeDryRunResponse.model_validate(job.dry_run)
+        return JobDryRunResponse.model_validate(job.dry_run)
 
     def list_tasks(self, job_id: str) -> list[JobTaskRead]:
         self._stored_job(job_id)

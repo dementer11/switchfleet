@@ -48,6 +48,9 @@ The SQLAlchemy model set covers:
 - `ports`
 - `acl_objects`
 - `acl_rules`
+- `password_rollout_batches`
+- `password_rollout_batch_tasks`
+- `password_change_secrets`
 
 UUID primary keys are used for operational entities. Capabilities, dry-run payloads, tags, commands, and audit metadata use JSONB-compatible fields.
 
@@ -63,10 +66,11 @@ Database-backed runtime objects:
 - audit logs with secrets sanitized before insert;
 - encrypted config backups and hashes;
 - per-device locks with expiration.
+- password rollout batch state and encrypted temporary password-change secrets.
 
 Repositories live under `app/repositories/` and are the only layer that performs SQLAlchemy queries for enterprise runtime objects. Routers do not contain SQLAlchemy queries.
 
-Alembic revision `20260530_0001` creates the enterprise tables and includes a downgrade path. The migration uses PostgreSQL-native UUID, JSONB, and INET types on PostgreSQL and portable UUID string, JSON, and string IP columns on SQLite test databases.
+Alembic revision `20260530_0001` creates the core enterprise tables and includes a downgrade path. Revision `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change execution secrets. The migrations use PostgreSQL-native UUID, JSONB, and INET types on PostgreSQL and portable UUID string, JSON, and string IP columns on SQLite test databases.
 
 ## Change Workflow
 
@@ -78,10 +82,43 @@ The intended production flow is:
 4. Planner generates dry-run commands, warnings, risks, capabilities, and rollback flags.
 5. API returns masked dry-run and marks approval required.
 6. Approved job creates per-device tasks.
-7. Current executor locks each device, creates a pre-change backup, applies commands through the safe dummy transport, verifies state, saves only after verification, writes audit, and releases lock.
+7. Current VLAN executor locks each device, creates a pre-change backup, applies commands through the safe dummy transport, verifies state, saves only after verification, writes audit, and releases lock.
 8. Failures are stored per task without secrets.
 
 `POST /api/v1/jobs/vlan-change` now creates a database-backed job in `pending_approval`, stores the dry-run payload, creates or updates device rows, and creates per-device tasks. `POST /api/v1/jobs/{job_id}/run` executes only approved jobs and still uses the safe `DummyTransport` path. Dry-run entries marked for Scrapli or Netmiko execution are rejected while `NCP_ALLOW_REAL_DEVICE_APPLY=false`.
+
+## Password Change Workflow
+
+`POST /api/v1/jobs/password-change` creates a database-backed password job in `pending_approval`. The service:
+
+- validates selected devices, username, and secret;
+- resolves the exact driver per device;
+- generates masked vendor-specific password commands;
+- stores masked dry-run and masked task commands;
+- stores the new password only in `password_change_secrets` encrypted with the configured cipher;
+- creates canary rollout batches using 1, 5, 20, then the remainder;
+- marks Bulat, Eltex, Generic SSH, and ICMP-only targets as not applyable unless their destructive templates are confirmed.
+
+Password jobs cannot be executed through generic `POST /api/v1/jobs/{job_id}/run`; they must use `POST /api/v1/jobs/{job_id}/run-next-batch`. Each batch task:
+
+1. checks approval, dry-run, backup-before-apply, verification requirement, confirmed driver template, and real-transport safety gates;
+2. acquires a per-device lock;
+3. creates an encrypted backup record before applying commands;
+4. decrypts the new password only in memory;
+5. renders exact driver commands in memory and sends them through `DummyTransport`;
+6. verifies that the new credential works;
+7. saves config only after credential verification succeeds;
+8. writes sanitized audit events and releases the lock in the finally path.
+
+If any canary task fails and `stop_on_first_failure=true`, the rollout job becomes `failed` and later batches cannot start. The encrypted password-change secret is deleted after a fully successful rollout.
+
+Password rollout endpoints:
+
+- `POST /api/v1/jobs/password-change`
+- `GET /api/v1/jobs/{job_id}/rollout-plan`
+- `POST /api/v1/jobs/{job_id}/run-next-batch`
+- `POST /api/v1/jobs/{job_id}/pause`
+- `POST /api/v1/jobs/{job_id}/resume`
 
 ## Credentials Encryption
 
@@ -113,6 +150,7 @@ Job statuses:
 - `partially_failed`
 - `failed`
 - `cancelled`
+- `paused`
 
 Task statuses:
 
@@ -151,6 +189,8 @@ Approval rules:
 - backup creation;
 - device lock/unlock;
 - task start/success/failure/skip;
+- password rollout batch creation/start/success/failure;
+- password task backup/apply/credential verification/save events;
 - credential creation/deletion.
 
 Each event stores actor, action, object type, object id, optional device id, optional job id, before/after data, metadata, and timestamp. Metadata and nested structures are sanitized before storage.
@@ -200,6 +240,7 @@ Diff output is produced with `difflib.unified_diff` and masked before it leaves 
 - device lock must be acquired;
 - backup must be created before config commands;
 - save config runs only after verification succeeds.
+- password jobs must run through canary rollout batches and cannot use the generic job run endpoint.
 
 Tasks that violate a safety gate are marked `failed` or `skipped` with a sanitized reason.
 

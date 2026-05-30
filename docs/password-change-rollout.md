@@ -18,6 +18,15 @@ Password changes are high-risk because a failed credential can lock automation a
 
 ## Canary Stages
 
+The Enterprise API creates rollout batches automatically. By default the generated plan is:
+
+- 1 device;
+- 5 devices;
+- 20 devices;
+- all remaining devices.
+
+Operators execute only the next pending batch with `POST /api/v1/jobs/{job_id}/run-next-batch`. The generic `POST /api/v1/jobs/{job_id}/run` endpoint is intentionally blocked for password jobs so the canary sequence cannot be bypassed.
+
 ### Stage 1: One Device
 
 Select one low-risk device from the target driver family.
@@ -80,6 +89,16 @@ Required checks:
 - If verification fails, do not save config.
 - If a device lock is active, skip or reschedule that device.
 - If a driver template is not confirmed, keep the device in dry-run only mode.
+- If the first canary batch fails, do not start later batches until the failing model, firmware, or credential issue is understood.
+
+## Enterprise API Safety Guarantees
+
+- The submitted password is never stored in job input, dry-run, task commands, task dry-run payloads, or audit logs.
+- The temporary password-change secret is encrypted in `password_change_secrets`.
+- The temporary secret is decrypted only in memory during the currently running batch task.
+- Successful rollout deletes the temporary encrypted secret.
+- Scrapli and Netmiko execution remains blocked while `NCP_ALLOW_REAL_DEVICE_APPLY=false`.
+- Bulat, Eltex, Generic SSH, and ICMP-only devices do not perform destructive password apply without confirmed templates.
 
 ## Completion Criteria
 

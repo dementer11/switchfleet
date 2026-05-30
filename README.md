@@ -21,12 +21,14 @@ Supported and modeled families:
 ## Capabilities
 
 - Intent-based VLAN dry-run workflow through FastAPI.
+- Controlled password-change workflow through FastAPI with encrypted temporary secret storage and canary rollout.
 - CLI operations for password, ACL, VLAN, port changes, and config backup.
 - Hybrid transport strategy: Scrapli/Netmiko in the enterprise layer; Netmiko/Paramiko in the CLI layer.
 - Encrypted credentials with Fernet.
 - Approval workflow for jobs.
 - Per-device job tasks and status transitions.
 - PostgreSQL-backed enterprise runtime for devices, credentials, jobs, job tasks, encrypted backups, audit events, and device locks.
+- PostgreSQL-backed password rollout batches, rollout batch tasks, and encrypted password-change execution secrets.
 - Encrypted backup storage and masked diffs.
 - Device locks with expiration.
 - Structured audit events with secret masking before database write.
@@ -95,6 +97,40 @@ Invoke-RestMethod -Method Post `
 
 The run path enforces approval, backup-before-apply, verification commands, device locks, and save-after-verification. Real Scrapli/Netmiko apply remains blocked by default; this release still executes the enterprise apply path through `DummyTransport`.
 
+Create a password change job:
+
+```powershell
+$body = @{
+  requested_by = "sec"
+  devices = @(
+    @{ ip_address = "10.0.0.1"; vendor = "Cisco"; model = "Cat2960-48" }
+    @{ ip_address = "10.0.0.2"; vendor = "Huawei"; model = "S5735" }
+  )
+  username = "admin"
+  new_password = "new-secret-value"
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/api/v1/jobs/password-change" `
+  -Headers @{ "X-Actor" = "sec"; "X-Roles" = "security_admin" } `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+Password jobs cannot be run through the generic `/run` endpoint. They must be approved and then executed one canary batch at a time:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/api/v1/jobs/<job_id>/approve" `
+  -Headers @{ "X-Actor" = "sec"; "X-Roles" = "security_admin" }
+
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/api/v1/jobs/<job_id>/run-next-batch" `
+  -Headers @{ "X-Actor" = "sec"; "X-Roles" = "security_admin" }
+```
+
+`GET /api/v1/jobs/<job_id>/rollout-plan` shows the current canary batches. `POST /pause` and `POST /resume` can pause or resume the password rollout between batches.
+
 ## Persistence Layer Status
 
 The Enterprise API runtime is backed by SQLAlchemy repositories and PostgreSQL-compatible models. API routers call services, services call repositories, and repositories encapsulate database operations.
@@ -108,8 +144,9 @@ Persisted enterprise objects:
 - encrypted config backups;
 - audit logs;
 - per-device locks.
+- password rollout batches and encrypted password-change execution secrets.
 
-Alembic migration `20260530_0001` creates the enterprise tables and supports downgrade. SQLite is supported for unit and integration tests through portable UUID, JSON, and INET column mappings.
+Alembic migration `20260530_0001` creates the enterprise tables. Migration `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change secrets. Both migrations support downgrade. SQLite is supported for unit and integration tests through portable UUID, JSON, and INET column mappings.
 
 The CLI workflow under `src/netops_orchestrator` remains separate. It can render plans and execute CLI operations directly from inventory files; the Enterprise API workflow stores operational state in the database and keeps destructive apply guarded by approval, backup, verification, locks, and audit.
 
@@ -212,7 +249,8 @@ Windows portable:
 - Never save config before verification succeeds.
 - Never run real device apply by default.
 - Never run destructive operations for Bulat, Eltex, or Generic SSH until templates are lab-confirmed.
-- Password changes must use canary rollout before broad execution.
+- Password changes must use the Enterprise API canary rollout endpoint before broad execution.
+- Password-change secrets are temporary encrypted execution records and are deleted after a successful rollout.
 
 ## Documentation
 

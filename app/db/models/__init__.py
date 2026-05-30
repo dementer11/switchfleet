@@ -5,6 +5,7 @@ from app.db.models.credential import Credential, CredentialAssignment
 from app.db.models.device import Device
 from app.db.models.job import Job, JobTask
 from app.db.models.lock import DeviceLock
+from app.db.models.password import PasswordChangeSecret, PasswordRolloutBatch, PasswordRolloutBatchTask
 from app.db.models.port import Port
 from app.db.models.vlan import Vlan
 
@@ -19,6 +20,9 @@ __all__ = [
     "DeviceLock",
     "Job",
     "JobTask",
+    "PasswordChangeSecret",
+    "PasswordRolloutBatch",
+    "PasswordRolloutBatchTask",
     "Port",
     "Vlan",
 ]
