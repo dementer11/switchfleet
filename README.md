@@ -29,6 +29,7 @@ Supported and modeled families:
 - Per-device job tasks and status transitions.
 - PostgreSQL-backed enterprise runtime for devices, credentials, jobs, job tasks, encrypted backups, audit events, and device locks.
 - PostgreSQL-backed password rollout batches, rollout batch tasks, and encrypted password-change execution secrets.
+- Lab validation records, sanitized transcripts, checklists, and a future real-apply safety gate.
 - Encrypted backup storage and masked diffs.
 - Device locks with expiration.
 - Structured audit events with secret masking before database write.
@@ -36,6 +37,8 @@ Supported and modeled families:
 - Offline installers and Windows portable release bundles.
 
 Real device apply is disabled by default in the enterprise executor. The current safe executor uses `DummyTransport`; dry-run entries that request Scrapli or Netmiko are rejected while `NCP_ALLOW_REAL_DEVICE_APPLY=false`. The flag is a safety gate for future lab execution, not a production-ready real-device apply switch in this release.
+
+Lab validation records are now available for future real-device enablement. They do not enable real apply by themselves: even if `NCP_ALLOW_REAL_DEVICE_APPLY=true` is set in a lab, a matching approved validation for vendor, model pattern, driver, and capability is required before the future real-transport gate can pass.
 
 ## Install For Development
 
@@ -145,8 +148,9 @@ Persisted enterprise objects:
 - audit logs;
 - per-device locks.
 - password rollout batches and encrypted password-change execution secrets.
+- lab driver validations, sanitized lab transcripts, and checklist items.
 
-Alembic migration `20260530_0001` creates the enterprise tables. Migration `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change secrets. Both migrations support downgrade. SQLite is supported for unit and integration tests through portable UUID, JSON, and INET column mappings.
+Alembic migration `20260530_0001` creates the enterprise tables. Migration `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change secrets. Migration `20260530_0003` adds lab validation records, sanitized transcripts, and checklists. All migrations support downgrade. SQLite is supported for unit and integration tests through portable UUID, JSON, and INET column mappings.
 
 The CLI workflow under `src/netops_orchestrator` remains separate. It can render plans and execute CLI operations directly from inventory files; the Enterprise API workflow stores operational state in the database and keeps destructive apply guarded by approval, backup, verification, locks, and audit.
 
@@ -251,11 +255,13 @@ Windows portable:
 - Never run destructive operations for Bulat, Eltex, or Generic SSH until templates are lab-confirmed.
 - Password changes must use the Enterprise API canary rollout endpoint before broad execution.
 - Password-change secrets are temporary encrypted execution records and are deleted after a successful rollout.
+- Lab validation approval never bypasses dry-run, approval, backup, verification, locks, audit, or the default real-apply-off gate.
 
 ## Documentation
 
 - [Enterprise platform architecture](docs/enterprise-platform.md)
 - [Driver validation checklist](docs/lab-validation.md)
+- [Lab validation framework](docs/lab-validation-framework.md)
 - [Password change rollout](docs/password-change-rollout.md)
 - [Original architecture notes](docs/architecture.md)
 - [Security policy](SECURITY.md)

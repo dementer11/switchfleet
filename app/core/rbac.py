@@ -8,10 +8,12 @@ from app.core.exceptions import ApprovalRequiredError
 
 class Role(str, Enum):
     viewer = "viewer"
+    network_operator = "network_operator"
     operator = "operator"
     network_admin = "network_admin"
     security_admin = "security_admin"
     auditor = "auditor"
+    admin = "admin"
     super_admin = "super_admin"
 
 
@@ -29,10 +31,15 @@ class Permission(str, Enum):
     approve_job = "approve_job"
     run_approved_job = "run_approved_job"
     cancel_job = "cancel_job"
+    read_lab_validations = "read_lab_validations"
+    manage_lab_validations = "manage_lab_validations"
 
 
 ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
     Role.viewer: frozenset({Permission.read_devices, Permission.read_jobs, Permission.read_backups}),
+    Role.network_operator: frozenset(
+        {Permission.read_devices, Permission.read_jobs, Permission.run_job, Permission.read_lab_validations}
+    ),
     Role.operator: frozenset({Permission.read_devices, Permission.read_jobs, Permission.run_job}),
     Role.network_admin: frozenset(
         {
@@ -55,11 +62,14 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.change_acl,
             Permission.change_password,
             Permission.manage_credentials,
+            Permission.read_lab_validations,
+            Permission.manage_lab_validations,
             Permission.approve_job,
             Permission.cancel_job,
         }
     ),
     Role.auditor: frozenset({Permission.read_devices, Permission.read_jobs, Permission.read_backups, Permission.read_audit}),
+    Role.admin: frozenset(set(Permission)),
     Role.super_admin: frozenset(set(Permission)),
 }
 
