@@ -1,7 +1,9 @@
 from fastapi.testclient import TestClient
 
+from app.db.session import SessionLocal
+from app.repositories.credentials import CredentialRepository
 from app.main import app
-from app.services.runtime_state import get_runtime_state
+from app.services.audit_service import AuditService
 
 
 HEADERS = {"X-Actor": "sec", "X-Roles": "security_admin"}
@@ -21,7 +23,7 @@ def test_credentials_api_never_returns_plain_password() -> None:
     assert created_payload["password"] == "<redacted>"
     assert "VerySecret" not in created.text
     credential_id = created_payload["id"]
-    stored = get_runtime_state().credentials[credential_id]
+    stored = CredentialRepository(SessionLocal()).get(credential_id)
     assert stored.encrypted_password != "VerySecret"
 
     listed = client.get("/api/v1/credentials", headers=HEADERS)
@@ -45,6 +47,5 @@ def test_delete_credential_writes_audit_event() -> None:
     deleted = client.delete(f"/api/v1/credentials/{credential_id}", headers=HEADERS)
 
     assert deleted.status_code == 204
-    actions = [event.action for event in get_runtime_state().audit_events]
+    actions = [event.action for event in AuditService().list()]
     assert "credential.deleted" in actions
-

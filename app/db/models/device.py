@@ -5,10 +5,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import DateTime, String
-from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.types import GUID, INET_TYPE, JSON_TYPE
 
 
 def utcnow() -> datetime:
@@ -18,9 +18,9 @@ def utcnow() -> datetime:
 class Device(Base):
     __tablename__ = "devices"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     hostname: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    ip_address: Mapped[str] = mapped_column(INET, unique=True, nullable=False)
+    ip_address: Mapped[str] = mapped_column(INET_TYPE, unique=True, nullable=False)
     vendor: Mapped[str] = mapped_column(String(128), nullable=False)
     model: Mapped[str] = mapped_column(String(255), nullable=False)
     platform: Mapped[str] = mapped_column(String(128), nullable=False, default="")
@@ -31,9 +31,8 @@ class Device(Base):
     transport_type: Mapped[str] = mapped_column(String(64), nullable=False, default="auto")
     driver_name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     status: Mapped[str] = mapped_column(String(64), nullable=False, default="unknown")
-    tags: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    capabilities: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    tags: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, nullable=False, default=dict)
+    capabilities: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, nullable=False, default=dict)
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
-

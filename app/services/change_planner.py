@@ -30,6 +30,10 @@ class ChangePlanner:
             verification_commands: list[str] = []
             save_commands: list[str] = []
             apply_supported = capabilities.destructive_apply_confirmed
+            if not capabilities.destructive_apply_confirmed:
+                warning = "Driver template is not confirmed for destructive apply"
+                warnings.append(warning)
+                risks.append(warning)
             try:
                 plan = driver.plan_vlan_intent(intent)
                 verify = driver.verify_change(ExpectedState(vlan=intent))
@@ -38,10 +42,6 @@ class ChangePlanner:
                 verification_commands = verify.checks
                 commands = mask_command_list(plan.commands + verify.checks + save_commands)
                 warnings.extend(plan.warnings)
-                if not capabilities.destructive_apply_confirmed:
-                    warning = "Driver template is not confirmed for destructive apply"
-                    warnings.append(warning)
-                    risks.append(warning)
             except CapabilityError as exc:
                 apply_supported = False
                 risks.append(str(exc))

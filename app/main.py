@@ -29,7 +29,7 @@ def create_app() -> FastAPI:
     configure_logging()
     application = FastAPI(
         title="Network Control Platform",
-        version="0.1.0",
+        version="0.2.0",
         description="Intent-based multi-vendor switch management platform.",
     )
     application.include_router(api_router)

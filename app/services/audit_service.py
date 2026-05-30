@@ -3,16 +3,22 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy.orm import Session
+
+from app.db.models.audit import AuditLog
+from app.db.session import SessionLocal
+from app.repositories.audit import AuditRepository
+from app.schemas.audit import AuditEventRead
 from app.utils.masking import mask_secrets
-from app.services.runtime_state import RuntimeState, StoredAuditEvent, get_runtime_state, new_id, utcnow
 
 
 SECRET_KEYS = {"password", "enable_password", "encrypted_password", "encrypted_enable_password", "secret", "token"}
 
 
 class AuditService:
-    def __init__(self, state: RuntimeState | None = None):
-        self.state = state or get_runtime_state()
+    def __init__(self, session: Session | None = None):
+        self.session = session or SessionLocal()
+        self.repository = AuditRepository(self.session)
 
     def write(
         self,
@@ -25,9 +31,8 @@ class AuditService:
         before: dict[str, Any] | None = None,
         after: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> StoredAuditEvent:
-        event = StoredAuditEvent(
-            id=new_id(),
+    ) -> AuditEventRead:
+        event = self.repository.create(
             actor=actor,
             action=action,
             object_type=object_type,
@@ -37,10 +42,8 @@ class AuditService:
             before=_sanitize(before) if before is not None else None,
             after=_sanitize(after) if after is not None else None,
             metadata=_sanitize(metadata or {}),
-            created_at=utcnow(),
         )
-        self.state.audit_events.append(event)
-        return event
+        return _read_event(event)
 
     def list(
         self,
@@ -51,23 +54,19 @@ class AuditService:
         job_id: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
-    ) -> list[StoredAuditEvent]:
-        events = self.state.audit_events
-        if actor is not None:
-            events = [event for event in events if event.actor == actor]
-        if action is not None:
-            events = [event for event in events if event.action == action]
-        if object_type is not None:
-            events = [event for event in events if event.object_type == object_type]
-        if device_id is not None:
-            events = [event for event in events if event.device_id == device_id]
-        if job_id is not None:
-            events = [event for event in events if event.job_id == job_id]
-        if date_from is not None:
-            events = [event for event in events if event.created_at >= date_from]
-        if date_to is not None:
-            events = [event for event in events if event.created_at <= date_to]
-        return list(events)
+    ) -> list[AuditEventRead]:
+        return [
+            _read_event(event)
+            for event in self.repository.list(
+                actor=actor,
+                action=action,
+                object_type=object_type,
+                device_id=device_id,
+                job_id=job_id,
+                date_from=date_from,
+                date_to=date_to,
+            )
+        ]
 
     def event(self, actor: str, action: str, target: str, result: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         safe_metadata = _sanitize(metadata or {})
@@ -88,3 +87,19 @@ def _sanitize(value: Any) -> Any:
     if isinstance(value, str):
         return mask_secrets(value)
     return value
+
+
+def _read_event(event: AuditLog) -> AuditEventRead:
+    return AuditEventRead(
+        id=str(event.id),
+        actor=event.actor,
+        action=event.action,
+        object_type=event.object_type,
+        object_id=event.object_id,
+        device_id=str(event.device_id) if event.device_id else None,
+        job_id=str(event.job_id) if event.job_id else None,
+        before=event.before,
+        after=event.after,
+        metadata=event.extra_metadata,
+        created_at=event.created_at.isoformat(),
+    )

@@ -5,11 +5,13 @@
 The platform is split into explicit layers:
 
 1. API layer: FastAPI routers accept vendor-neutral intents and return sanitized dry-run output.
-2. Service layer: planning, driver resolution, inventory import, audit, approval, credentials, locks, and future job execution.
+2. Service layer: planning, driver resolution, inventory import, audit, approval, credentials, locks, backup, and guarded job execution.
 3. Driver layer: `BaseNetworkDriver` exposes a vendor-neutral API and concrete drivers render vendor-specific commands.
 4. Transport layer: `ScrapliTransport` is the primary SSH backend, `NetmikoTransport` is fallback, `DummyTransport` is for tests.
 5. Database layer: PostgreSQL with SQLAlchemy 2.x models for devices, credentials, jobs, tasks, backups, audit, locks, VLANs, ports, and ACL objects.
 6. Security layer: RBAC, secret masking, encrypted credential provider, approval-required workflows.
+
+The enterprise API runtime is backed by SQLAlchemy repositories. API routers call services, services call repositories, and repositories encapsulate database operations. Tests use temporary SQLite through portable UUID, JSON, and INET type mappings; production is designed for PostgreSQL.
 
 ## Technology Choices
 
@@ -49,6 +51,23 @@ The SQLAlchemy model set covers:
 
 UUID primary keys are used for operational entities. Capabilities, dry-run payloads, tags, commands, and audit metadata use JSONB-compatible fields.
 
+Current API endpoints read and write the database-backed repository layer. `RuntimeState` remains only as a legacy test/dummy helper and is not used by the production API service path.
+
+## Persistence Layer Status
+
+Database-backed runtime objects:
+
+- devices imported through the API or created from job dry-run inputs;
+- encrypted credentials;
+- jobs and job tasks, including dry-run payloads and status transitions;
+- audit logs with secrets sanitized before insert;
+- encrypted config backups and hashes;
+- per-device locks with expiration.
+
+Repositories live under `app/repositories/` and are the only layer that performs SQLAlchemy queries for enterprise runtime objects. Routers do not contain SQLAlchemy queries.
+
+Alembic revision `20260530_0001` creates the enterprise tables and includes a downgrade path. The migration uses PostgreSQL-native UUID, JSONB, and INET types on PostgreSQL and portable UUID string, JSON, and string IP columns on SQLite test databases.
+
 ## Change Workflow
 
 The intended production flow is:
@@ -59,10 +78,10 @@ The intended production flow is:
 4. Planner generates dry-run commands, warnings, risks, capabilities, and rollback flags.
 5. API returns masked dry-run and marks approval required.
 6. Approved job creates per-device tasks.
-7. Executor locks each device, connects, backs up config, applies commands, verifies state, saves config, writes audit, and releases lock.
+7. Current executor locks each device, creates a pre-change backup, applies commands through the safe dummy transport, verifies state, saves only after verification, writes audit, and releases lock.
 8. Failures are stored per task without secrets.
 
-`POST /api/v1/jobs/vlan-change` now creates a persistent runtime job in `pending_approval`, stores the dry-run payload, and creates per-device tasks. `POST /api/v1/jobs/{job_id}/run` executes only approved jobs and still uses the safe `DummyTransport` path unless lab-only real apply is explicitly enabled.
+`POST /api/v1/jobs/vlan-change` now creates a database-backed job in `pending_approval`, stores the dry-run payload, creates or updates device rows, and creates per-device tasks. `POST /api/v1/jobs/{job_id}/run` executes only approved jobs and still uses the safe `DummyTransport` path. Dry-run entries marked for Scrapli or Netmiko execution are rejected while `NCP_ALLOW_REAL_DEVICE_APPLY=false`.
 
 ## Credentials Encryption
 
@@ -192,7 +211,9 @@ The second-stage executor runs only through `DummyTransport`. If a dry-run devic
 
 ## How To Enable Lab-Only Apply Safely
 
-For a closed lab only:
+The current release does not connect the enterprise executor to real Scrapli or Netmiko apply. `NCP_ALLOW_REAL_DEVICE_APPLY=true` should be treated as a lab-readiness gate for future real transport execution, not as production enablement.
+
+For a closed lab readiness exercise:
 
 1. Use a dedicated inventory with non-production devices.
 2. Confirm backup and verification commands manually for each firmware family.
@@ -244,5 +265,12 @@ Current tests cover:
 - job status transitions;
 - RBAC header permissions;
 - existing CLI transport/backup tests.
+- database repository and persistence tests for credentials, jobs, tasks, audit, backups, locks, and execution flow.
 
 Real devices are not required for unit tests. Lab validation should add sanitized golden outputs and command transcripts by vendor/model/firmware.
+
+## CLI Workflow Versus Enterprise API Workflow
+
+The CLI workflow in `src/netops_orchestrator` remains file-driven and is intentionally not coupled to the enterprise database. It reads inventory files, renders command plans, and can execute explicit CLI operations with operator-provided credentials.
+
+The Enterprise API workflow is stateful and database-backed. It stores devices, jobs, dry-runs, tasks, encrypted credentials, encrypted backups, audit events, and device locks. It keeps real network apply disabled by default and requires approval, backup, verification, lock acquisition, and audit before the safe executor path can run.

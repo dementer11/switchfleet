@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services.runtime_state import get_runtime_state
+from app.services.audit_service import AuditService
 
 
 HEADERS = {"X-Actor": "netadmin", "X-Roles": "network_admin"}
@@ -32,7 +32,7 @@ def test_job_create_approve_and_idempotent_approve() -> None:
     assert approved.json()["status"] == "approved"
     assert approved_again.status_code == 200
     assert approved_again.json()["status"] == "approved"
-    actions = [event.action for event in get_runtime_state().audit_events]
+    actions = [event.action for event in AuditService().list()]
     assert "job.created" in actions
     assert "job.dry_run_generated" in actions
     assert "job.approved" in actions
@@ -48,4 +48,3 @@ def test_cancelled_job_cannot_be_approved() -> None:
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "cancelled"
     assert approved.status_code == 409
-

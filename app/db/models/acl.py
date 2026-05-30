@@ -4,10 +4,10 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.types import GUID
 
 
 def utcnow() -> datetime:
@@ -17,7 +17,7 @@ def utcnow() -> datetime:
 class AclObject(Base):
     __tablename__ = "acl_objects"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     acl_type: Mapped[str] = mapped_column(String(64), nullable=False)
     description: Mapped[str | None] = mapped_column(String(512), nullable=True)
@@ -27,8 +27,8 @@ class AclObject(Base):
 class AclRuleModel(Base):
     __tablename__ = "acl_rules"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    acl_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("acl_objects.id"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    acl_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("acl_objects.id"), nullable=False)
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     action: Mapped[str] = mapped_column(String(32), nullable=False)
     protocol: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -37,4 +37,3 @@ class AclRuleModel(Base):
     dst: Mapped[str] = mapped_column(String(255), nullable=False)
     dst_port: Mapped[str | None] = mapped_column(String(64), nullable=True)
     remark: Mapped[str | None] = mapped_column(String(512), nullable=True)
-

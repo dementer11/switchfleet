@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services.runtime_state import get_runtime_state
+from app.services.audit_service import AuditService
 
 
 HEADERS = {"X-Actor": "netadmin", "X-Roles": "network_admin"}
@@ -42,10 +42,11 @@ def test_approved_job_runs_with_dummy_transport_and_backup() -> None:
     payload = response.json()
     assert payload["status"] == "succeeded"
     task_id = next(iter(payload["task_statuses"]))
-    task = get_runtime_state().job_tasks[task_id]
-    assert task.backup_id is not None
-    assert task.sanitized_output
-    actions = [event.action for event in get_runtime_state().audit_events]
+    task = client.get(f"/api/v1/jobs/{job_id}/tasks", headers=HEADERS).json()[0]
+    assert task["id"] == task_id
+    assert task["backup_id"] is not None
+    assert task["sanitized_output"]
+    actions = [event.action for event in AuditService().list()]
     assert "backup.created" in actions
     assert "device.locked" in actions
     assert "device.unlocked" in actions
@@ -60,21 +61,26 @@ def test_unconfirmed_driver_is_skipped_not_applied() -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "failed"
-    task = next(iter(get_runtime_state().job_tasks.values()))
-    assert task.status == "skipped"
-    assert "not confirmed" in str(task.error)
+    task = client.get(f"/api/v1/jobs/{job_id}/tasks", headers=HEADERS).json()[0]
+    assert task["status"] == "skipped"
+    assert "not confirmed" in str(task["error"])
 
 
 def test_real_transport_apply_is_blocked_by_default() -> None:
     client = TestClient(app)
     job_id = _create_vlan_job(client)
-    task = next(iter(get_runtime_state().job_tasks.values()))
-    task.dry_run_device["transport"] = "scrapli"
+    from app.db.session import SessionLocal
+    from app.repositories.job_tasks import JobTaskRepository
+
+    session = SessionLocal()
+    task = JobTaskRepository(session).list_by_job(job_id)[0]
+    task.dry_run_device = {**task.dry_run_device, "transport": "scrapli"}
+    session.commit()
     client.post(f"/api/v1/jobs/{job_id}/approve", headers=HEADERS)
 
     response = client.post(f"/api/v1/jobs/{job_id}/run", headers=HEADERS)
 
     assert response.status_code == 200
     assert response.json()["status"] == "failed"
-    assert "Real device apply is disabled" in str(task.error)
-
+    updated_task = client.get(f"/api/v1/jobs/{job_id}/tasks", headers=HEADERS).json()[0]
+    assert "Real device apply is disabled" in str(updated_task["error"])

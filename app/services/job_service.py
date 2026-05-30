@@ -1,70 +1,82 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from sqlalchemy.orm import Session
+
 from app.core.exceptions import ConflictError, NotFoundError
+from app.db.models.job import Job, JobTask
+from app.db.session import SessionLocal
+from app.repositories.devices import DeviceRepository
+from app.repositories.job_tasks import JobTaskRepository
+from app.repositories.jobs import JobRepository
 from app.schemas.job import JobCreateResponse, JobDryRunResponse, JobRead, JobTaskRead, VlanChangeJobRequest
 from app.services.audit_service import AuditService
 from app.services.change_planner import ChangePlanner
-from app.services.runtime_state import RuntimeState, StoredJob, StoredJobTask, get_runtime_state, new_id, utcnow
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class JobService:
     def __init__(
         self,
-        state: RuntimeState | None = None,
+        session: Session | None = None,
         planner: ChangePlanner | None = None,
         audit: AuditService | None = None,
     ):
-        self.state = state or get_runtime_state()
+        self.session = session or SessionLocal()
+        self.jobs = JobRepository(self.session)
+        self.tasks = JobTaskRepository(self.session)
+        self.devices = DeviceRepository(self.session)
         self.planner = planner or ChangePlanner()
-        self.audit = audit or AuditService(self.state)
+        self.audit = audit or AuditService(self.session)
 
     def create_vlan_change_job(self, payload: VlanChangeJobRequest, actor: str) -> JobCreateResponse:
         dry_run = self.planner.plan_vlan_change(payload)
-        job_id = new_id()
         dry_run_dict = dry_run.model_dump()
-        job = StoredJob(
-            id=job_id,
+        for index, device_result in enumerate(dry_run_dict["devices"]):
+            device_input = payload.devices[index]
+            stored_device = self.devices.create_or_update_from_input(
+                device_input,
+                driver_name=str(device_result.get("driver") or ""),
+                capabilities=dict(device_result.get("capabilities") or {}),
+            )
+            device_result["device_id"] = str(stored_device.id)
+        job = self.jobs.create(
             job_type="vlan_change",
             status="pending_approval",
             requested_by=actor,
-            approved_by=None,
             approval_status="pending",
             dry_run=dry_run_dict,
             input_payload=payload.model_dump(),
-            created_at=utcnow(),
         )
-        for index, device in enumerate(dry_run_dict["devices"]):
-            device_id = device.get("device_id") or f"{job_id}:device:{index}"
-            device["device_id"] = device_id
-            task = StoredJobTask(
-                id=new_id(),
-                job_id=job_id,
-                device_id=device_id,
-                status="pending",
-                attempt=0,
+        for device in dry_run_dict["devices"]:
+            self.tasks.create(
+                job_id=job.id,
+                device_id=str(device["device_id"]),
                 commands=list(device["commands"]),
                 dry_run_device=device,
             )
-            self.state.job_tasks[task.id] = task
-            job.task_ids.append(task.id)
         job.dry_run = dry_run_dict
-        self.state.jobs[job.id] = job
+        self.session.flush()
         self.audit.write(
             actor=actor,
             action="job.created",
             object_type="job",
-            object_id=job.id,
+            object_id=str(job.id),
             after={"job_type": job.job_type, "status": job.status, "approval_status": job.approval_status},
         )
         self.audit.write(
             actor=actor,
             action="job.dry_run_generated",
             object_type="job",
-            object_id=job.id,
+            object_id=str(job.id),
             after={"device_count": dry_run.device_count, "estimated_impact": dry_run.estimated_impact},
         )
         return JobCreateResponse(
-            job_id=job.id,
+            job_id=str(job.id),
             status=job.status,
             approval_status=job.approval_status,
             approval_required=True,
@@ -73,7 +85,7 @@ class JobService:
         )
 
     def list_jobs(self) -> list[JobRead]:
-        return [self._read_job(job) for job in self.state.jobs.values()]
+        return [self._read_job(job) for job in self.jobs.list()]
 
     def get_job(self, job_id: str) -> JobRead:
         return self._read_job(self._stored_job(job_id))
@@ -82,8 +94,8 @@ class JobService:
         return JobDryRunResponse.model_validate(self._stored_job(job_id).dry_run)
 
     def list_tasks(self, job_id: str) -> list[JobTaskRead]:
-        job = self._stored_job(job_id)
-        return [self._read_task(self.state.job_tasks[task_id]) for task_id in job.task_ids]
+        self._stored_job(job_id)
+        return [self._read_task(task) for task in self.tasks.list_by_job(job_id)]
 
     def approve(self, job_id: str, actor: str) -> JobRead:
         job = self._stored_job(job_id)
@@ -96,12 +108,13 @@ class JobService:
         job.approval_status = "approved"
         job.approved_by = actor
         job.approved_at = utcnow()
+        self.session.flush()
         self.audit.write(
             actor=actor,
             action="job.approved",
             object_type="job",
-            object_id=job.id,
-            job_id=job.id,
+            object_id=str(job.id),
+            job_id=str(job.id),
             before=before,
             after={"status": job.status, "approval_status": job.approval_status, "approved_by": actor},
         )
@@ -117,17 +130,17 @@ class JobService:
         job.status = "cancelled"
         job.approval_status = "cancelled"
         job.finished_at = utcnow()
-        for task_id in job.task_ids:
-            task = self.state.job_tasks[task_id]
+        for task in self.tasks.list_by_job(job.id):
             if task.status == "pending":
                 task.status = "skipped"
                 task.error = "Job cancelled before execution"
+        self.session.flush()
         self.audit.write(
             actor=actor,
             action="job.cancelled",
             object_type="job",
-            object_id=job.id,
-            job_id=job.id,
+            object_id=str(job.id),
+            job_id=str(job.id),
             before=before,
             after={"status": job.status, "approval_status": job.approval_status},
         )
@@ -136,15 +149,15 @@ class JobService:
     def create_draft_from_dry_run(self, dry_run: JobDryRunResponse) -> dict[str, object]:
         return {"status": "pending_approval", "dry_run": dry_run.model_dump()}
 
-    def _stored_job(self, job_id: str) -> StoredJob:
-        job = self.state.jobs.get(job_id)
-        if job is None:
-            raise NotFoundError(f"Job {job_id} not found")
-        return job
+    def _stored_job(self, job_id: str) -> Job:
+        try:
+            return self.jobs.get(job_id)
+        except NotFoundError:
+            raise
 
-    def _read_job(self, job: StoredJob) -> JobRead:
+    def _read_job(self, job: Job) -> JobRead:
         return JobRead(
-            id=job.id,
+            id=str(job.id),
             job_type=job.job_type,
             status=job.status,
             requested_by=job.requested_by,
@@ -154,20 +167,20 @@ class JobService:
             approved_at=job.approved_at.isoformat() if job.approved_at else None,
             started_at=job.started_at.isoformat() if job.started_at else None,
             finished_at=job.finished_at.isoformat() if job.finished_at else None,
-            task_ids=list(job.task_ids),
+            task_ids=[str(task_id) for task_id in self.jobs.task_ids(job.id)],
         )
 
-    def _read_task(self, task: StoredJobTask) -> JobTaskRead:
+    def _read_task(self, task: JobTask) -> JobTaskRead:
         return JobTaskRead(
-            id=task.id,
-            job_id=task.job_id,
-            device_id=task.device_id,
+            id=str(task.id),
+            job_id=str(task.job_id),
+            device_id=str(task.device_id),
             status=task.status,
             attempt=task.attempt,
             commands=list(task.commands),
             sanitized_output=task.sanitized_output,
             error=task.error,
-            backup_id=task.backup_id,
+            backup_id=str(task.backup_id) if task.backup_id else None,
             started_at=task.started_at.isoformat() if task.started_at else None,
             finished_at=task.finished_at.isoformat() if task.finished_at else None,
         )

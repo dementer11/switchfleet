@@ -26,13 +26,14 @@ Supported and modeled families:
 - Encrypted credentials with Fernet.
 - Approval workflow for jobs.
 - Per-device job tasks and status transitions.
+- PostgreSQL-backed enterprise runtime for devices, credentials, jobs, job tasks, encrypted backups, audit events, and device locks.
 - Encrypted backup storage and masked diffs.
 - Device locks with expiration.
-- Structured audit events with secret masking.
+- Structured audit events with secret masking before database write.
 - CSV/XLSX/JSON inventory import support.
 - Offline installers and Windows portable release bundles.
 
-Real device apply is disabled by default in the enterprise executor. The current safe executor uses `DummyTransport`; lab-only real apply must be explicitly enabled with `NCP_ALLOW_REAL_DEVICE_APPLY=true` after driver templates are validated.
+Real device apply is disabled by default in the enterprise executor. The current safe executor uses `DummyTransport`; dry-run entries that request Scrapli or Netmiko are rejected while `NCP_ALLOW_REAL_DEVICE_APPLY=false`. The flag is a safety gate for future lab execution, not a production-ready real-device apply switch in this release.
 
 ## Install For Development
 
@@ -92,7 +93,25 @@ Invoke-RestMethod -Method Post `
   -Headers @{ "X-Actor" = "lead"; "X-Roles" = "network_admin" }
 ```
 
-The run path enforces approval, backup-before-apply, verification commands, device locks, and save-after-verification. Real Scrapli/Netmiko apply remains blocked unless explicitly enabled for a lab.
+The run path enforces approval, backup-before-apply, verification commands, device locks, and save-after-verification. Real Scrapli/Netmiko apply remains blocked by default; this release still executes the enterprise apply path through `DummyTransport`.
+
+## Persistence Layer Status
+
+The Enterprise API runtime is backed by SQLAlchemy repositories and PostgreSQL-compatible models. API routers call services, services call repositories, and repositories encapsulate database operations.
+
+Persisted enterprise objects:
+
+- imported devices;
+- encrypted credentials;
+- jobs and job tasks;
+- dry-run payloads;
+- encrypted config backups;
+- audit logs;
+- per-device locks.
+
+Alembic migration `20260530_0001` creates the enterprise tables and supports downgrade. SQLite is supported for unit and integration tests through portable UUID, JSON, and INET column mappings.
+
+The CLI workflow under `src/netops_orchestrator` remains separate. It can render plans and execute CLI operations directly from inventory files; the Enterprise API workflow stores operational state in the database and keeps destructive apply guarded by approval, backup, verification, locks, and audit.
 
 ## Credentials
 
@@ -199,5 +218,6 @@ Windows portable:
 
 - [Enterprise platform architecture](docs/enterprise-platform.md)
 - [Driver validation checklist](docs/lab-validation.md)
+- [Password change rollout](docs/password-change-rollout.md)
 - [Original architecture notes](docs/architecture.md)
-
+- [Security policy](SECURITY.md)
