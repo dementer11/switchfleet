@@ -23,6 +23,9 @@ Report vulnerabilities privately to the repository owner. Include:
 - Credentials must be encrypted at rest through `NCP_SECRET_KEY`.
 - Audit events must sanitize nested `password`, `enable_password`, `encrypted_password`, `encrypted_enable_password`, `secret`, and `token` fields.
 - Command output and backup diffs must pass through secret masking before leaving service boundaries.
+- Password-change jobs must store the new password only in encrypted temporary execution records.
+- Password-change dry-runs, job payloads, task commands, audit events, and logs must contain only masked password material.
+- Temporary password-change execution secrets must be removed after a successful rollout.
 - Test fixtures and lab transcripts must be sanitized before commit.
 
 ## Destructive Operation Rules
@@ -37,6 +40,7 @@ Destructive network apply is guarded by default:
 - save commands run only after verification succeeds;
 - real Scrapli/Netmiko apply is blocked while `NCP_ALLOW_REAL_DEVICE_APPLY=false`;
 - Bulat, Eltex, and Generic SSH drivers must not run destructive apply until templates are confirmed in a lab.
+- Password-change jobs must run through canary rollout batches and must not use the generic job run endpoint.
 
 ## Production Guidance
 

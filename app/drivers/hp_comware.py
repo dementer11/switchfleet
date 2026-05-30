@@ -37,7 +37,7 @@ class HPComwareDriver(BaseNetworkDriver):
 
     def change_local_user_password(self, username: str, new_password: str) -> CommandResult:
         return self._plan_result(
-            ["system-view", f"local-user {username}", f"password cipher {new_password}", "quit", "quit"],
+            ["system-view", f"local-user {username}", f"password irreversible-cipher {new_password}", "quit", "quit"],
             changed=True,
         )
 
@@ -83,4 +83,3 @@ class HPComwareDriver(BaseNetworkDriver):
 
     def render_show_vlan_command(self, vlan_id: int) -> str:
         return f"display vlan {vlan_id}"
-
