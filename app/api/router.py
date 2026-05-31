@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.v1 import audit, backups, credentials, devices, health, jobs, lab_validations
+from app.api.v1 import audit, backups, credentials, devices, health, inventory, jobs, lab_validations
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(health.router, tags=["system"])
@@ -11,4 +11,5 @@ api_router.include_router(credentials.router, prefix="/credentials", tags=["cred
 api_router.include_router(backups.router, tags=["backups"])
 api_router.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
 api_router.include_router(lab_validations.router, prefix="/lab-validations", tags=["lab-validations"])
+api_router.include_router(inventory.router, prefix="/inventory", tags=["inventory"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])

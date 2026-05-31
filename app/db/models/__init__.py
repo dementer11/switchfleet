@@ -3,6 +3,7 @@ from app.db.models.audit import AuditLog
 from app.db.models.backup import ConfigBackupModel
 from app.db.models.credential import Credential, CredentialAssignment
 from app.db.models.device import Device
+from app.db.models.inventory import InventoryImportBatch, InventoryImportRow
 from app.db.models.job import Job, JobTask
 from app.db.models.lab_validation import LabDriverValidation, LabValidationChecklistItem, LabValidationTranscript
 from app.db.models.lock import DeviceLock
@@ -19,6 +20,8 @@ __all__ = [
     "CredentialAssignment",
     "Device",
     "DeviceLock",
+    "InventoryImportBatch",
+    "InventoryImportRow",
     "Job",
     "JobTask",
     "LabDriverValidation",

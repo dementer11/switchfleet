@@ -54,6 +54,8 @@ The SQLAlchemy model set covers:
 - `lab_driver_validations`
 - `lab_validation_transcripts`
 - `lab_validation_checklists`
+- `inventory_import_batches`
+- `inventory_import_rows`
 
 UUID primary keys are used for operational entities. Capabilities, dry-run payloads, tags, commands, and audit metadata use JSONB-compatible fields.
 
@@ -71,10 +73,49 @@ Database-backed runtime objects:
 - per-device locks with expiration.
 - password rollout batch state and encrypted temporary password-change secrets.
 - lab validation approvals, sanitized transcripts, and validation checklists.
+- inventory onboarding batches, normalized import rows, discovery state, and driver/credential validation metadata.
 
 Repositories live under `app/repositories/` and are the only layer that performs SQLAlchemy queries for enterprise runtime objects. Routers do not contain SQLAlchemy queries.
 
-Alembic revision `20260530_0001` creates the core enterprise tables and includes a downgrade path. Revision `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change execution secrets. Revision `20260530_0003` adds lab validation approvals, sanitized transcripts, and checklists. The migrations use PostgreSQL-native UUID, JSONB, and INET types on PostgreSQL and portable UUID string, JSON, and string IP columns on SQLite test databases.
+Alembic revision `20260530_0001` creates the core enterprise tables and includes a downgrade path. Revision `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change execution secrets. Revision `20260530_0003` adds lab validation approvals, sanitized transcripts, and checklists. Revision `20260530_0004` adds inventory onboarding device metadata, import batches, and import rows. The migrations use PostgreSQL-native UUID, JSONB, and INET types on PostgreSQL and portable UUID string, JSON, and string IP columns on SQLite test databases.
+
+## Inventory Onboarding Workflow
+
+Inventory onboarding is the safe pre-change entry point for device records. It is intentionally separate from change jobs and does not execute destructive operations.
+
+The workflow:
+
+1. Operator submits inventory records to `POST /api/v1/inventory/import`.
+2. Parser canonicalizes supported columns such as `ip`, `management_ip`, `hostname`, `vendor`, `model`, `platform`, `site`, `location`, `rack`, `role`, `tags`, and `credential_name`.
+3. Normalizer validates management IP, normalizes vendor/model/platform, and normalizes tags.
+4. Driver resolver maps each normalized device to the expected driver and records warnings for unsupported or unconfirmed families.
+5. Credential assignment validation checks only safe credential metadata by `credential_name`; no password or encrypted secret is returned.
+6. `dry_run=true` stores a batch and row report without creating devices.
+7. `dry_run=false` idempotently creates or updates device metadata by management IP.
+8. Read-only discovery can update reachability status and safe facts through `DummyTransport` in tests.
+
+Inventory endpoints:
+
+- `POST /api/v1/inventory/import`
+- `GET /api/v1/inventory/imports`
+- `GET /api/v1/inventory/imports/{batch_id}`
+- `GET /api/v1/inventory/imports/{batch_id}/rows`
+- `GET /api/v1/inventory/imports/{batch_id}/validation-report`
+- `GET /api/v1/inventory/imports/{batch_id}/driver-resolution-report`
+- `GET /api/v1/inventory/devices`
+- `GET /api/v1/inventory/devices/{device_id}`
+- `PATCH /api/v1/inventory/devices/{device_id}`
+- `POST /api/v1/inventory/devices/{device_id}/check-reachability`
+- `POST /api/v1/inventory/imports/{batch_id}/check-reachability`
+- `GET /api/v1/inventory/imports/{batch_id}/discovery-report`
+
+Inventory RBAC:
+
+- `viewer` and `network_operator` can read inventory.
+- `network_admin`, `security_admin`, `admin`, and `super_admin` can manage inventory.
+- `network_operator`, `network_admin`, `security_admin`, `admin`, and `super_admin` can run read-only discovery.
+
+Inventory onboarding prepares devices for later lab validation and controlled change workflows. It does not bypass approval, dry-run, backup, verification, locks, audit, password rollout, or lab validation gates.
 
 ## Change Workflow
 
@@ -245,6 +286,7 @@ Diff output is produced with `difflib.unified_diff` and masked before it leaves 
 - backup must be created before config commands;
 - save config runs only after verification succeeds.
 - password jobs must run through canary rollout batches and cannot use the generic job run endpoint.
+- inventory onboarding and discovery cannot run config commands, save commands, password changes, VLAN changes, ACL changes, or port changes.
 
 Tasks that violate a safety gate are marked `failed` or `skipped` with a sanitized reason.
 

@@ -33,12 +33,22 @@ class Permission(str, Enum):
     cancel_job = "cancel_job"
     read_lab_validations = "read_lab_validations"
     manage_lab_validations = "manage_lab_validations"
+    read_inventory = "read_inventory"
+    manage_inventory = "manage_inventory"
+    run_discovery = "run_discovery"
 
 
 ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
-    Role.viewer: frozenset({Permission.read_devices, Permission.read_jobs, Permission.read_backups}),
+    Role.viewer: frozenset({Permission.read_devices, Permission.read_jobs, Permission.read_backups, Permission.read_inventory}),
     Role.network_operator: frozenset(
-        {Permission.read_devices, Permission.read_jobs, Permission.run_job, Permission.read_lab_validations}
+        {
+            Permission.read_devices,
+            Permission.read_jobs,
+            Permission.run_job,
+            Permission.read_lab_validations,
+            Permission.read_inventory,
+            Permission.run_discovery,
+        }
     ),
     Role.operator: frozenset({Permission.read_devices, Permission.read_jobs, Permission.run_job}),
     Role.network_admin: frozenset(
@@ -52,6 +62,9 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.approve_job,
             Permission.cancel_job,
             Permission.run_approved_job,
+            Permission.read_inventory,
+            Permission.manage_inventory,
+            Permission.run_discovery,
         }
     ),
     Role.security_admin: frozenset(
@@ -66,6 +79,9 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.manage_lab_validations,
             Permission.approve_job,
             Permission.cancel_job,
+            Permission.read_inventory,
+            Permission.manage_inventory,
+            Permission.run_discovery,
         }
     ),
     Role.auditor: frozenset({Permission.read_devices, Permission.read_jobs, Permission.read_backups, Permission.read_audit}),
