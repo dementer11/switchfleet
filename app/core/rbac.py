@@ -41,6 +41,10 @@ class Permission(str, Enum):
     run_config_backup = "run_config_backup"
     manage_restore_plans = "manage_restore_plans"
     approve_restore_plans = "approve_restore_plans"
+    read_vlan_workflows = "read_vlan_workflows"
+    manage_vlan_workflows = "manage_vlan_workflows"
+    plan_vlan_workflows = "plan_vlan_workflows"
+    approve_vlan_workflows = "approve_vlan_workflows"
 
 
 ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
@@ -51,6 +55,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.read_backups,
             Permission.read_inventory,
             Permission.read_config_backups,
+            Permission.read_vlan_workflows,
         }
     ),
     Role.network_operator: frozenset(
@@ -63,6 +68,8 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.run_discovery,
             Permission.read_config_backups,
             Permission.run_config_backup,
+            Permission.read_vlan_workflows,
+            Permission.plan_vlan_workflows,
         }
     ),
     Role.operator: frozenset({Permission.read_devices, Permission.read_jobs, Permission.run_job}),
@@ -84,6 +91,9 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.manage_config_backups,
             Permission.run_config_backup,
             Permission.manage_restore_plans,
+            Permission.read_vlan_workflows,
+            Permission.manage_vlan_workflows,
+            Permission.plan_vlan_workflows,
         }
     ),
     Role.security_admin: frozenset(
@@ -103,6 +113,8 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.run_discovery,
             Permission.read_config_backups,
             Permission.approve_restore_plans,
+            Permission.read_vlan_workflows,
+            Permission.approve_vlan_workflows,
         }
     ),
     Role.auditor: frozenset({Permission.read_devices, Permission.read_jobs, Permission.read_backups, Permission.read_audit}),

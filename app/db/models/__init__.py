@@ -18,6 +18,12 @@ from app.db.models.lock import DeviceLock
 from app.db.models.password import PasswordChangeSecret, PasswordRolloutBatch, PasswordRolloutBatchTask
 from app.db.models.port import Port
 from app.db.models.vlan import Vlan
+from app.db.models.vlan_workflow import (
+    VlanChangeApproval,
+    VlanChangeAuditEvent,
+    VlanChangeDevice,
+    VlanChangeRequest,
+)
 
 __all__ = [
     "AclObject",
@@ -46,4 +52,8 @@ __all__ = [
     "PasswordRolloutBatchTask",
     "Port",
     "Vlan",
+    "VlanChangeApproval",
+    "VlanChangeAuditEvent",
+    "VlanChangeDevice",
+    "VlanChangeRequest",
 ]
