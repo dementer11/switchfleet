@@ -56,6 +56,12 @@ The SQLAlchemy model set covers:
 - `lab_validation_checklists`
 - `inventory_import_batches`
 - `inventory_import_rows`
+- `config_backup_jobs`
+- `config_backup_job_items`
+- `config_backup_schedules`
+- `config_snapshots`
+- `config_snapshot_diffs`
+- `config_restore_plans`
 
 UUID primary keys are used for operational entities. Capabilities, dry-run payloads, tags, commands, and audit metadata use JSONB-compatible fields.
 
@@ -74,10 +80,11 @@ Database-backed runtime objects:
 - password rollout batch state and encrypted temporary password-change secrets.
 - lab validation approvals, sanitized transcripts, and validation checklists.
 - inventory onboarding batches, normalized import rows, discovery state, and driver/credential validation metadata.
+- config backup jobs, persisted schedules, sanitized snapshots, sanitized diffs, drift reports, retention policy state, and restore plan previews.
 
 Repositories live under `app/repositories/` and are the only layer that performs SQLAlchemy queries for enterprise runtime objects. Routers do not contain SQLAlchemy queries.
 
-Alembic revision `20260530_0001` creates the core enterprise tables and includes a downgrade path. Revision `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change execution secrets. Revision `20260530_0003` adds lab validation approvals, sanitized transcripts, and checklists. Revision `20260530_0004` adds inventory onboarding device metadata, import batches, and import rows. The migrations use PostgreSQL-native UUID, JSONB, and INET types on PostgreSQL and portable UUID string, JSON, and string IP columns on SQLite test databases.
+Alembic revision `20260530_0001` creates the core enterprise tables and includes a downgrade path. Revision `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change execution secrets. Revision `20260530_0003` adds lab validation approvals, sanitized transcripts, and checklists. Revision `20260530_0004` adds inventory onboarding device metadata, import batches, and import rows. Revision `20260531_0005` adds config backup jobs, schedules, snapshots, diffs, and restore plan previews. The migrations use PostgreSQL-native UUID, JSONB, and INET types on PostgreSQL and portable UUID string, JSON, and string IP columns on SQLite test databases.
 
 ## Inventory Onboarding Workflow
 
@@ -116,6 +123,60 @@ Inventory RBAC:
 - `network_operator`, `network_admin`, `security_admin`, `admin`, and `super_admin` can run read-only discovery.
 
 Inventory onboarding prepares devices for later lab validation and controlled change workflows. It does not bypass approval, dry-run, backup, verification, locks, audit, password rollout, or lab validation gates.
+
+## Config Backup Scheduling Workflow
+
+Config backup scheduling is the safe configuration history workflow. It is separate from change execution and restore execution.
+
+The workflow:
+
+1. Operator creates a backup job with scope `all`, `site`, `tag`, `device_ids`, or `query`.
+2. Service resolves devices from the inventory repository and creates one job item per device.
+3. Manual run walks job items and uses only read-only collection.
+4. Raw collected or imported config is sanitized before persistence.
+5. Snapshot hash is calculated from sanitized config.
+6. A sanitized unified diff is created when the latest snapshot differs from the previous one.
+7. Drift reports compare latest snapshots and return change summaries.
+8. Retention can remove old snapshots by age and max snapshots per device.
+9. Restore plans generate preview text and risk level, but never apply to a device.
+
+Config backup endpoints:
+
+- `POST /api/v1/config-backups/jobs`
+- `GET /api/v1/config-backups/jobs`
+- `GET /api/v1/config-backups/jobs/{job_id}`
+- `POST /api/v1/config-backups/jobs/{job_id}/run`
+- `GET /api/v1/config-backups/jobs/{job_id}/report`
+- `POST /api/v1/config-backups/schedules`
+- `GET /api/v1/config-backups/schedules`
+- `GET /api/v1/config-backups/schedules/{schedule_id}`
+- `PATCH /api/v1/config-backups/schedules/{schedule_id}`
+- `POST /api/v1/config-backups/schedules/{schedule_id}/enable`
+- `POST /api/v1/config-backups/schedules/{schedule_id}/disable`
+- `DELETE /api/v1/config-backups/schedules/{schedule_id}`
+- `GET /api/v1/config-backups/devices/{device_id}/snapshots`
+- `GET /api/v1/config-backups/snapshots/{snapshot_id}`
+- `POST /api/v1/config-backups/devices/{device_id}/snapshots/import`
+- `GET /api/v1/config-backups/devices/{device_id}/diffs`
+- `GET /api/v1/config-backups/diffs/{diff_id}`
+- `GET /api/v1/config-backups/devices/{device_id}/drift`
+- `POST /api/v1/config-backups/drift-report`
+- `POST /api/v1/config-backups/restore-plans`
+- `GET /api/v1/config-backups/restore-plans`
+- `GET /api/v1/config-backups/restore-plans/{plan_id}`
+- `POST /api/v1/config-backups/restore-plans/{plan_id}/approve`
+- `POST /api/v1/config-backups/restore-plans/{plan_id}/reject`
+
+Config backup RBAC:
+
+- `viewer` and `network_operator` can read config backup records.
+- `network_operator`, `network_admin`, `admin`, and `super_admin` can run backup jobs.
+- `network_admin`, `admin`, and `super_admin` can manage backup jobs, schedules, snapshots, and restore plans.
+- `security_admin`, `admin`, and `super_admin` can approve restore plans.
+
+The config sanitizer masks password, secret, username password/secret, SNMP community, TACACS/RADIUS key, NTP authentication key, private key, SSH key, API token, and bearer token material. Raw unsanitized config is not stored.
+
+Restore plan approval only approves the preview record. There is no endpoint that applies a restore plan to a device.
 
 ## Change Workflow
 
@@ -287,6 +348,7 @@ Diff output is produced with `difflib.unified_diff` and masked before it leaves 
 - save config runs only after verification succeeds.
 - password jobs must run through canary rollout batches and cannot use the generic job run endpoint.
 - inventory onboarding and discovery cannot run config commands, save commands, password changes, VLAN changes, ACL changes, or port changes.
+- config backup jobs and restore plan previews cannot run config commands, save commands, password changes, VLAN changes, ACL changes, port changes, or restore apply.
 
 Tasks that violate a safety gate are marked `failed` or `skipped` with a sanitized reason.
 
