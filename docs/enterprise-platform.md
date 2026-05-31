@@ -66,6 +66,11 @@ The SQLAlchemy model set covers:
 - `vlan_change_devices`
 - `vlan_change_approvals`
 - `vlan_change_audit_events`
+- `change_executions`
+- `change_execution_steps`
+- `change_execution_locks`
+- `change_execution_approvals`
+- `change_execution_audit_events`
 
 UUID primary keys are used for operational entities. Capabilities, dry-run payloads, tags, commands, and audit metadata use JSONB-compatible fields.
 
@@ -86,10 +91,11 @@ Database-backed runtime objects:
 - inventory onboarding batches, normalized import rows, discovery state, and driver/credential validation metadata.
 - config backup jobs, persisted schedules, sanitized snapshots, sanitized diffs, drift reports, retention policy state, and restore plan previews.
 - VLAN workflow validation requests, per-device readiness rows, approval metadata, planned dry-run commands, rollback previews, and audit events.
+- simulation-only change execution records, step graphs, orchestration locks, approvals, and audit events.
 
 Repositories live under `app/repositories/` and are the only layer that performs SQLAlchemy queries for enterprise runtime objects. Routers do not contain SQLAlchemy queries.
 
-Alembic revision `20260530_0001` creates the core enterprise tables and includes a downgrade path. Revision `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change execution secrets. Revision `20260530_0003` adds lab validation approvals, sanitized transcripts, and checklists. Revision `20260530_0004` adds inventory onboarding device metadata, import batches, and import rows. Revision `20260531_0005` adds config backup jobs, schedules, snapshots, diffs, and restore plan previews. Revision `20260531_0006` adds VLAN workflow validation, planning, approvals, and audit tables. The migrations use PostgreSQL-native UUID, JSONB, and INET types on PostgreSQL and portable UUID string, JSON, and string IP columns on SQLite test databases.
+Alembic revision `20260530_0001` creates the core enterprise tables and includes a downgrade path. Revision `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change execution secrets. Revision `20260530_0003` adds lab validation approvals, sanitized transcripts, and checklists. Revision `20260530_0004` adds inventory onboarding device metadata, import batches, and import rows. Revision `20260531_0005` adds config backup jobs, schedules, snapshots, diffs, and restore plan previews. Revision `20260531_0006` adds VLAN workflow validation, planning, approvals, and audit tables. Revision `20260531_0007` adds simulation-only change execution orchestration tables. The migrations use PostgreSQL-native UUID, JSONB, and INET types on PostgreSQL and portable UUID string, JSON, and string IP columns on SQLite test databases.
 
 ## Inventory Onboarding Workflow
 
@@ -225,6 +231,52 @@ VLAN workflow RBAC:
 - `security_admin`, `admin`, and `super_admin` can approve or reject VLAN workflow requests.
 
 The workflow requires fresh config snapshots from Config Backup Scheduling and matching Lab Validation records. It does not bypass password-change rollout, inventory onboarding, dry-run, approval, backup, verification, locks, audit, or the default real-apply-off safety gate.
+
+## Change Execution Orchestrator
+
+The Change Execution Orchestrator is a simulation-only pipeline for combining existing safe workflows into a single execution timeline. It does not apply commands and does not expose `/apply` or destructive `/run` endpoints.
+
+Supported source types:
+
+- `password_rollout`;
+- `vlan_workflow`;
+- `config_backup_job`;
+- `manual`;
+- `composite`.
+
+The workflow:
+
+1. Operator creates a simulation record under `/api/v1/change-executions`.
+2. Validation confirms simulation mode, source readiness, fresh backups, lab validation, and no conflicting orchestration locks.
+3. Planning builds a deterministic step graph with validation, backup, lab validation, lock, source-plan, approval, per-device simulation, and finalize steps.
+4. Submit/approve moves the record through `pending_approval` and `approved`.
+5. Lock reservation creates database-only device/workflow reservations.
+6. Mark-ready requires validation success, planned steps, reserved locks, and approval if enabled.
+7. Simulation updates DB step state and `dry_run_output` only; it never opens transport.
+8. Reports are read-only and do not create duplicate audit events.
+
+Change execution endpoints:
+
+- `POST /api/v1/change-executions`
+- `GET /api/v1/change-executions`
+- `GET /api/v1/change-executions/{execution_id}`
+- `POST /api/v1/change-executions/{execution_id}/validate`
+- `GET /api/v1/change-executions/{execution_id}/validation-report`
+- `POST /api/v1/change-executions/{execution_id}/plan`
+- `GET /api/v1/change-executions/{execution_id}/plan`
+- `POST /api/v1/change-executions/{execution_id}/submit`
+- `POST /api/v1/change-executions/{execution_id}/approve`
+- `POST /api/v1/change-executions/{execution_id}/reject`
+- `POST /api/v1/change-executions/{execution_id}/reserve-locks`
+- `POST /api/v1/change-executions/{execution_id}/mark-ready`
+- `POST /api/v1/change-executions/{execution_id}/simulate`
+- `POST /api/v1/change-executions/{execution_id}/cancel`
+- `GET /api/v1/change-executions/{execution_id}/simulation-report`
+- `GET /api/v1/change-executions/{execution_id}/audit`
+- `GET /api/v1/change-executions/{execution_id}/locks`
+- `GET /api/v1/change-executions/{execution_id}/report`
+
+There is no apply permission because no apply endpoint exists. `viewer` can read, `network_operator` can plan and simulate, `network_admin` can manage and cancel, `security_admin` can approve, and `admin`/`super_admin` have all change execution permissions.
 
 ## Change Workflow
 
@@ -398,6 +450,7 @@ Diff output is produced with `difflib.unified_diff` and masked before it leaves 
 - inventory onboarding and discovery cannot run config commands, save commands, password changes, VLAN changes, ACL changes, or port changes.
 - config backup jobs and restore plan previews cannot run config commands, save commands, password changes, VLAN changes, ACL changes, port changes, or restore apply.
 - VLAN workflow hardening cannot run config commands, save commands, password changes, VLAN changes, ACL changes, port changes, or restore/apply actions.
+- Change Execution Orchestrator simulation cannot open transports, send commands, save configs, collect backups, run password batches, or apply VLAN/ACL/port changes.
 
 Tasks that violate a safety gate are marked `failed` or `skipped` with a sanitized reason.
 
