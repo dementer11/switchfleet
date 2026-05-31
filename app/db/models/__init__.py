@@ -1,6 +1,13 @@
 from app.db.models.acl import AclObject, AclRuleModel
 from app.db.models.audit import AuditLog
 from app.db.models.backup import ConfigBackupModel
+from app.db.models.change_execution import (
+    ChangeExecution,
+    ChangeExecutionApproval,
+    ChangeExecutionAuditEvent,
+    ChangeExecutionLock,
+    ChangeExecutionStep,
+)
 from app.db.models.config_backup import (
     ConfigBackupJob,
     ConfigBackupJobItem,
@@ -29,6 +36,11 @@ __all__ = [
     "AclObject",
     "AclRuleModel",
     "AuditLog",
+    "ChangeExecution",
+    "ChangeExecutionApproval",
+    "ChangeExecutionAuditEvent",
+    "ChangeExecutionLock",
+    "ChangeExecutionStep",
     "ConfigBackupModel",
     "ConfigBackupJob",
     "ConfigBackupJobItem",

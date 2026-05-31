@@ -33,6 +33,7 @@ Supported and modeled families:
 - Inventory onboarding batches, normalized device metadata, driver resolution reports, credential assignment checks, and read-only discovery status.
 - Config backup jobs, persisted schedules, sanitized snapshots, sanitized diffs, drift reports, retention policy, and restore plan previews.
 - Hardened VLAN workflow records with validation, impact preview, dry-run command plans, rollback previews, approvals, and audit events.
+- Simulation-only change execution orchestration for password rollout, VLAN workflow, and config-backup dependency timelines.
 - Encrypted backup storage and masked diffs.
 - Device locks with expiration.
 - Structured audit events with secret masking before database write.
@@ -118,6 +119,36 @@ Invoke-RestMethod -Method Post `
 ```
 
 Follow-up endpoints under `/api/v1/vlan-workflows` validate, preview impact, build dry-run plans, prepare rollback plans, submit for approval, approve/reject/cancel, and read audit/report data. There is no VLAN `/apply` endpoint and no VLAN `/run` endpoint.
+
+## Change Execution Orchestrator
+
+The Change Execution Orchestrator connects existing preparation workflows into a single simulation timeline. It is simulation-only: it validates source readiness, checks fresh backups and lab validation, reserves database-only orchestration locks, builds dry-run steps, simulates per-device actions, and writes audit events without opening transports or applying changes.
+
+Supported sources:
+
+- password rollout jobs;
+- VLAN workflow requests;
+- config backup jobs as dependency checks;
+- manual/composite metadata simulations.
+
+Create a simulation:
+
+```powershell
+$body = @{
+  title = "Simulate VLAN rollout"
+  change_type = "vlan_change"
+  source_type = "vlan_workflow"
+  source_id = "<vlan_workflow_request_id>"
+} | ConvertTo-Json -Depth 6
+
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/api/v1/change-executions" `
+  -Headers @{ "X-Actor" = "netadmin"; "X-Roles" = "network_admin" } `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+The workflow under `/api/v1/change-executions` supports validate, plan, submit, approve/reject, reserve-locks, mark-ready, simulate, cancel, reports, audit, and locks. There is no `/apply` endpoint and no destructive `/run` endpoint.
 
 ## Install For Development
 
@@ -231,8 +262,9 @@ Persisted enterprise objects:
 - inventory import batches and normalized import rows.
 - config backup jobs, persisted schedules, sanitized snapshots, sanitized diffs, and restore plan previews.
 - VLAN workflow requests, per-device validation rows, approvals, and VLAN workflow audit events.
+- change execution simulations, steps, database-only locks, approvals, and audit events.
 
-Alembic migration `20260530_0001` creates the enterprise tables. Migration `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change secrets. Migration `20260530_0003` adds lab validation records, sanitized transcripts, and checklists. Migration `20260530_0004` adds inventory onboarding metadata, import batches, and import rows. Migration `20260531_0005` adds config backup jobs, schedules, snapshots, diffs, and restore plan previews. Migration `20260531_0006` adds VLAN workflow validation, planning, approvals, and audit tables. All migrations support downgrade. SQLite is supported for unit and integration tests through portable UUID, JSON, and INET column mappings.
+Alembic migration `20260530_0001` creates the enterprise tables. Migration `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change secrets. Migration `20260530_0003` adds lab validation records, sanitized transcripts, and checklists. Migration `20260530_0004` adds inventory onboarding metadata, import batches, and import rows. Migration `20260531_0005` adds config backup jobs, schedules, snapshots, diffs, and restore plan previews. Migration `20260531_0006` adds VLAN workflow validation, planning, approvals, and audit tables. Migration `20260531_0007` adds simulation-only change execution orchestration tables. All migrations support downgrade. SQLite is supported for unit and integration tests through portable UUID, JSON, and INET column mappings.
 
 The CLI workflow under `src/netops_orchestrator` remains separate. It can render plans and execute CLI operations directly from inventory files; the Enterprise API workflow stores operational state in the database and keeps destructive apply guarded by approval, backup, verification, locks, and audit.
 
@@ -341,6 +373,7 @@ Windows portable:
 - Inventory onboarding and discovery are read-only metadata workflows and never run config, save, password, VLAN, ACL, or port commands.
 - Config backup scheduling stores sanitized snapshots and restore previews only; it never applies restore plans to devices.
 - VLAN workflow hardening is preparation-only; it validates, previews, plans, and approves but never sends VLAN commands to devices.
+- Change execution orchestration is simulation-only; it never opens transports, never sends commands, and exposes no `/apply` or destructive `/run`.
 
 ## Documentation
 
@@ -348,6 +381,7 @@ Windows portable:
 - [Inventory onboarding](docs/inventory-onboarding.md)
 - [Config backup scheduling](docs/config-backup-scheduling.md)
 - [VLAN workflow hardening](docs/vlan-workflow-hardening.md)
+- [Change execution orchestrator](docs/change-execution-orchestrator.md)
 - [Driver validation checklist](docs/lab-validation.md)
 - [Lab validation framework](docs/lab-validation-framework.md)
 - [Password change rollout](docs/password-change-rollout.md)
