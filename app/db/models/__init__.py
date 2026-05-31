@@ -1,6 +1,14 @@
 from app.db.models.acl import AclObject, AclRuleModel
 from app.db.models.audit import AuditLog
 from app.db.models.backup import ConfigBackupModel
+from app.db.models.config_backup import (
+    ConfigBackupJob,
+    ConfigBackupJobItem,
+    ConfigBackupSchedule,
+    ConfigRestorePlan,
+    ConfigSnapshot,
+    ConfigSnapshotDiff,
+)
 from app.db.models.credential import Credential, CredentialAssignment
 from app.db.models.device import Device
 from app.db.models.inventory import InventoryImportBatch, InventoryImportRow
@@ -16,6 +24,12 @@ __all__ = [
     "AclRuleModel",
     "AuditLog",
     "ConfigBackupModel",
+    "ConfigBackupJob",
+    "ConfigBackupJobItem",
+    "ConfigBackupSchedule",
+    "ConfigRestorePlan",
+    "ConfigSnapshot",
+    "ConfigSnapshotDiff",
     "Credential",
     "CredentialAssignment",
     "Device",

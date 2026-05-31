@@ -31,6 +31,7 @@ Supported and modeled families:
 - PostgreSQL-backed password rollout batches, rollout batch tasks, and encrypted password-change execution secrets.
 - Lab validation records, sanitized transcripts, checklists, and a future real-apply safety gate.
 - Inventory onboarding batches, normalized device metadata, driver resolution reports, credential assignment checks, and read-only discovery status.
+- Config backup jobs, persisted schedules, sanitized snapshots, sanitized diffs, drift reports, retention policy, and restore plan previews.
 - Encrypted backup storage and masked diffs.
 - Device locks with expiration.
 - Structured audit events with secret masking before database write.
@@ -65,6 +66,32 @@ Invoke-RestMethod -Method Post `
 ```
 
 Set `dry_run=false` to create or update device metadata. Follow-up reports are available under `/api/v1/inventory/imports/<batch_id>/validation-report`, `/driver-resolution-report`, and `/discovery-report`.
+
+## Config Backup Scheduling
+
+Config backup scheduling is a read-only workflow for collecting sanitized running-config snapshots and detecting drift. It does not restore or apply configuration to devices.
+
+Create and run a backup job:
+
+```powershell
+$body = @{
+  name = "HQ safe backup"
+  scope_type = "site"
+  scope_filter = @{ site = "HQ" }
+} | ConvertTo-Json -Depth 6
+
+$job = Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/api/v1/config-backups/jobs" `
+  -Headers @{ "X-Actor" = "netadmin"; "X-Roles" = "network_admin" } `
+  -ContentType "application/json" `
+  -Body $body
+
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/api/v1/config-backups/jobs/$($job.job.id)/run" `
+  -Headers @{ "X-Actor" = "netop"; "X-Roles" = "network_operator" }
+```
+
+Manual snapshot import sanitizes config before storage. Schedules are persisted and calculate `next_run_at`; this release does not start a scheduler daemon. Restore plans are preview-only records and have no apply endpoint.
 
 ## Install For Development
 
@@ -176,8 +203,9 @@ Persisted enterprise objects:
 - password rollout batches and encrypted password-change execution secrets.
 - lab driver validations, sanitized lab transcripts, and checklist items.
 - inventory import batches and normalized import rows.
+- config backup jobs, persisted schedules, sanitized snapshots, sanitized diffs, and restore plan previews.
 
-Alembic migration `20260530_0001` creates the enterprise tables. Migration `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change secrets. Migration `20260530_0003` adds lab validation records, sanitized transcripts, and checklists. Migration `20260530_0004` adds inventory onboarding metadata, import batches, and import rows. All migrations support downgrade. SQLite is supported for unit and integration tests through portable UUID, JSON, and INET column mappings.
+Alembic migration `20260530_0001` creates the enterprise tables. Migration `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change secrets. Migration `20260530_0003` adds lab validation records, sanitized transcripts, and checklists. Migration `20260530_0004` adds inventory onboarding metadata, import batches, and import rows. Migration `20260531_0005` adds config backup jobs, schedules, snapshots, diffs, and restore plan previews. All migrations support downgrade. SQLite is supported for unit and integration tests through portable UUID, JSON, and INET column mappings.
 
 The CLI workflow under `src/netops_orchestrator` remains separate. It can render plans and execute CLI operations directly from inventory files; the Enterprise API workflow stores operational state in the database and keeps destructive apply guarded by approval, backup, verification, locks, and audit.
 
@@ -284,11 +312,13 @@ Windows portable:
 - Password-change secrets are temporary encrypted execution records and are deleted after a successful rollout.
 - Lab validation approval never bypasses dry-run, approval, backup, verification, locks, audit, or the default real-apply-off gate.
 - Inventory onboarding and discovery are read-only metadata workflows and never run config, save, password, VLAN, ACL, or port commands.
+- Config backup scheduling stores sanitized snapshots and restore previews only; it never applies restore plans to devices.
 
 ## Documentation
 
 - [Enterprise platform architecture](docs/enterprise-platform.md)
 - [Inventory onboarding](docs/inventory-onboarding.md)
+- [Config backup scheduling](docs/config-backup-scheduling.md)
 - [Driver validation checklist](docs/lab-validation.md)
 - [Lab validation framework](docs/lab-validation-framework.md)
 - [Password change rollout](docs/password-change-rollout.md)

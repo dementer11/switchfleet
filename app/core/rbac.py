@@ -36,10 +36,23 @@ class Permission(str, Enum):
     read_inventory = "read_inventory"
     manage_inventory = "manage_inventory"
     run_discovery = "run_discovery"
+    read_config_backups = "read_config_backups"
+    manage_config_backups = "manage_config_backups"
+    run_config_backup = "run_config_backup"
+    manage_restore_plans = "manage_restore_plans"
+    approve_restore_plans = "approve_restore_plans"
 
 
 ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
-    Role.viewer: frozenset({Permission.read_devices, Permission.read_jobs, Permission.read_backups, Permission.read_inventory}),
+    Role.viewer: frozenset(
+        {
+            Permission.read_devices,
+            Permission.read_jobs,
+            Permission.read_backups,
+            Permission.read_inventory,
+            Permission.read_config_backups,
+        }
+    ),
     Role.network_operator: frozenset(
         {
             Permission.read_devices,
@@ -48,6 +61,8 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.read_lab_validations,
             Permission.read_inventory,
             Permission.run_discovery,
+            Permission.read_config_backups,
+            Permission.run_config_backup,
         }
     ),
     Role.operator: frozenset({Permission.read_devices, Permission.read_jobs, Permission.run_job}),
@@ -65,6 +80,10 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.read_inventory,
             Permission.manage_inventory,
             Permission.run_discovery,
+            Permission.read_config_backups,
+            Permission.manage_config_backups,
+            Permission.run_config_backup,
+            Permission.manage_restore_plans,
         }
     ),
     Role.security_admin: frozenset(
@@ -82,6 +101,8 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.read_inventory,
             Permission.manage_inventory,
             Permission.run_discovery,
+            Permission.read_config_backups,
+            Permission.approve_restore_plans,
         }
     ),
     Role.auditor: frozenset({Permission.read_devices, Permission.read_jobs, Permission.read_backups, Permission.read_audit}),
