@@ -62,6 +62,10 @@ The SQLAlchemy model set covers:
 - `config_snapshots`
 - `config_snapshot_diffs`
 - `config_restore_plans`
+- `vlan_change_requests`
+- `vlan_change_devices`
+- `vlan_change_approvals`
+- `vlan_change_audit_events`
 
 UUID primary keys are used for operational entities. Capabilities, dry-run payloads, tags, commands, and audit metadata use JSONB-compatible fields.
 
@@ -81,10 +85,11 @@ Database-backed runtime objects:
 - lab validation approvals, sanitized transcripts, and validation checklists.
 - inventory onboarding batches, normalized import rows, discovery state, and driver/credential validation metadata.
 - config backup jobs, persisted schedules, sanitized snapshots, sanitized diffs, drift reports, retention policy state, and restore plan previews.
+- VLAN workflow validation requests, per-device readiness rows, approval metadata, planned dry-run commands, rollback previews, and audit events.
 
 Repositories live under `app/repositories/` and are the only layer that performs SQLAlchemy queries for enterprise runtime objects. Routers do not contain SQLAlchemy queries.
 
-Alembic revision `20260530_0001` creates the core enterprise tables and includes a downgrade path. Revision `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change execution secrets. Revision `20260530_0003` adds lab validation approvals, sanitized transcripts, and checklists. Revision `20260530_0004` adds inventory onboarding device metadata, import batches, and import rows. Revision `20260531_0005` adds config backup jobs, schedules, snapshots, diffs, and restore plan previews. The migrations use PostgreSQL-native UUID, JSONB, and INET types on PostgreSQL and portable UUID string, JSON, and string IP columns on SQLite test databases.
+Alembic revision `20260530_0001` creates the core enterprise tables and includes a downgrade path. Revision `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change execution secrets. Revision `20260530_0003` adds lab validation approvals, sanitized transcripts, and checklists. Revision `20260530_0004` adds inventory onboarding device metadata, import batches, and import rows. Revision `20260531_0005` adds config backup jobs, schedules, snapshots, diffs, and restore plan previews. Revision `20260531_0006` adds VLAN workflow validation, planning, approvals, and audit tables. The migrations use PostgreSQL-native UUID, JSONB, and INET types on PostgreSQL and portable UUID string, JSON, and string IP columns on SQLite test databases.
 
 ## Inventory Onboarding Workflow
 
@@ -177,6 +182,49 @@ Config backup RBAC:
 The config sanitizer masks password, secret, username password/secret, SNMP community, TACACS/RADIUS key, NTP authentication key, private key, SSH key, API token, and bearer token material. Raw unsanitized config is not stored.
 
 Restore plan approval only approves the preview record. There is no endpoint that applies a restore plan to a device.
+
+## VLAN Workflow Hardening
+
+The hardened VLAN workflow is a preparation-only control plane for VLAN changes. It does not apply commands to devices and does not expose `/apply` or `/run` endpoints.
+
+The workflow:
+
+1. Operator creates a VLAN change request with scope, operation, VLAN ID, and optional VLAN name.
+2. Validation checks VLAN ID/name, target device support, fresh config backup snapshot, and matching lab validation.
+3. Impact preview reads the latest sanitized config snapshot and estimates existing VLAN state, potentially affected access/trunk ports, and risk.
+4. Dry-run plan renders vendor-specific command text for Huawei VRP, Cisco IOS, HP Comware, HPE ProCurve, and Dell PowerConnect.
+5. Rollback plan renders inverse command text where snapshot context is sufficient.
+6. Request can be submitted for approval only when validation, backup, lab validation, dry-run plan, and rollback plan are present.
+7. Approval marks the request `ready`; ready still means preparation-only and never executes against devices.
+8. Every state transition writes a VLAN workflow audit event.
+
+VLAN workflow endpoints:
+
+- `POST /api/v1/vlan-workflows/requests`
+- `GET /api/v1/vlan-workflows/requests`
+- `GET /api/v1/vlan-workflows/requests/{request_id}`
+- `POST /api/v1/vlan-workflows/requests/{request_id}/validate`
+- `GET /api/v1/vlan-workflows/requests/{request_id}/validation-report`
+- `POST /api/v1/vlan-workflows/requests/{request_id}/preview`
+- `GET /api/v1/vlan-workflows/requests/{request_id}/impact-preview`
+- `POST /api/v1/vlan-workflows/requests/{request_id}/plan`
+- `GET /api/v1/vlan-workflows/requests/{request_id}/plan`
+- `GET /api/v1/vlan-workflows/requests/{request_id}/rollback-plan`
+- `POST /api/v1/vlan-workflows/requests/{request_id}/submit`
+- `POST /api/v1/vlan-workflows/requests/{request_id}/approve`
+- `POST /api/v1/vlan-workflows/requests/{request_id}/reject`
+- `POST /api/v1/vlan-workflows/requests/{request_id}/cancel`
+- `GET /api/v1/vlan-workflows/requests/{request_id}/audit`
+- `GET /api/v1/vlan-workflows/requests/{request_id}/report`
+
+VLAN workflow RBAC:
+
+- `viewer` and `network_operator` can read VLAN workflow records.
+- `network_operator`, `network_admin`, `admin`, and `super_admin` can build validation, impact, and plan previews.
+- `network_admin`, `admin`, and `super_admin` can manage requests and submit/cancel.
+- `security_admin`, `admin`, and `super_admin` can approve or reject VLAN workflow requests.
+
+The workflow requires fresh config snapshots from Config Backup Scheduling and matching Lab Validation records. It does not bypass password-change rollout, inventory onboarding, dry-run, approval, backup, verification, locks, audit, or the default real-apply-off safety gate.
 
 ## Change Workflow
 
@@ -349,6 +397,7 @@ Diff output is produced with `difflib.unified_diff` and masked before it leaves 
 - password jobs must run through canary rollout batches and cannot use the generic job run endpoint.
 - inventory onboarding and discovery cannot run config commands, save commands, password changes, VLAN changes, ACL changes, or port changes.
 - config backup jobs and restore plan previews cannot run config commands, save commands, password changes, VLAN changes, ACL changes, port changes, or restore apply.
+- VLAN workflow hardening cannot run config commands, save commands, password changes, VLAN changes, ACL changes, port changes, or restore/apply actions.
 
 Tasks that violate a safety gate are marked `failed` or `skipped` with a sanitized reason.
 

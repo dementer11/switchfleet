@@ -32,6 +32,7 @@ Supported and modeled families:
 - Lab validation records, sanitized transcripts, checklists, and a future real-apply safety gate.
 - Inventory onboarding batches, normalized device metadata, driver resolution reports, credential assignment checks, and read-only discovery status.
 - Config backup jobs, persisted schedules, sanitized snapshots, sanitized diffs, drift reports, retention policy, and restore plan previews.
+- Hardened VLAN workflow records with validation, impact preview, dry-run command plans, rollback previews, approvals, and audit events.
 - Encrypted backup storage and masked diffs.
 - Device locks with expiration.
 - Structured audit events with secret masking before database write.
@@ -92,6 +93,31 @@ Invoke-RestMethod -Method Post `
 ```
 
 Manual snapshot import sanitizes config before storage. Schedules are persisted and calculate `next_run_at`; this release does not start a scheduler daemon. Restore plans are preview-only records and have no apply endpoint.
+
+## VLAN Workflow Hardening
+
+The hardened VLAN workflow prepares VLAN changes without applying them to devices. It validates the request, requires a fresh sanitized config snapshot, requires matching lab validation, builds an impact preview, renders dry-run vendor commands, prepares rollback text, records approval metadata, and writes a VLAN audit trail.
+
+Create a preparation request:
+
+```powershell
+$body = @{
+  title = "Add VLAN 120 to HQ access switches"
+  scope_type = "site"
+  scope_filter = @{ site = "HQ" }
+  operation = "create_vlan"
+  vlan_id = 120
+  vlan_name = "CAMERAS"
+} | ConvertTo-Json -Depth 6
+
+Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8000/api/v1/vlan-workflows/requests" `
+  -Headers @{ "X-Actor" = "netadmin"; "X-Roles" = "network_admin" } `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+Follow-up endpoints under `/api/v1/vlan-workflows` validate, preview impact, build dry-run plans, prepare rollback plans, submit for approval, approve/reject/cancel, and read audit/report data. There is no VLAN `/apply` endpoint and no VLAN `/run` endpoint.
 
 ## Install For Development
 
@@ -204,8 +230,9 @@ Persisted enterprise objects:
 - lab driver validations, sanitized lab transcripts, and checklist items.
 - inventory import batches and normalized import rows.
 - config backup jobs, persisted schedules, sanitized snapshots, sanitized diffs, and restore plan previews.
+- VLAN workflow requests, per-device validation rows, approvals, and VLAN workflow audit events.
 
-Alembic migration `20260530_0001` creates the enterprise tables. Migration `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change secrets. Migration `20260530_0003` adds lab validation records, sanitized transcripts, and checklists. Migration `20260530_0004` adds inventory onboarding metadata, import batches, and import rows. Migration `20260531_0005` adds config backup jobs, schedules, snapshots, diffs, and restore plan previews. All migrations support downgrade. SQLite is supported for unit and integration tests through portable UUID, JSON, and INET column mappings.
+Alembic migration `20260530_0001` creates the enterprise tables. Migration `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change secrets. Migration `20260530_0003` adds lab validation records, sanitized transcripts, and checklists. Migration `20260530_0004` adds inventory onboarding metadata, import batches, and import rows. Migration `20260531_0005` adds config backup jobs, schedules, snapshots, diffs, and restore plan previews. Migration `20260531_0006` adds VLAN workflow validation, planning, approvals, and audit tables. All migrations support downgrade. SQLite is supported for unit and integration tests through portable UUID, JSON, and INET column mappings.
 
 The CLI workflow under `src/netops_orchestrator` remains separate. It can render plans and execute CLI operations directly from inventory files; the Enterprise API workflow stores operational state in the database and keeps destructive apply guarded by approval, backup, verification, locks, and audit.
 
@@ -313,12 +340,14 @@ Windows portable:
 - Lab validation approval never bypasses dry-run, approval, backup, verification, locks, audit, or the default real-apply-off gate.
 - Inventory onboarding and discovery are read-only metadata workflows and never run config, save, password, VLAN, ACL, or port commands.
 - Config backup scheduling stores sanitized snapshots and restore previews only; it never applies restore plans to devices.
+- VLAN workflow hardening is preparation-only; it validates, previews, plans, and approves but never sends VLAN commands to devices.
 
 ## Documentation
 
 - [Enterprise platform architecture](docs/enterprise-platform.md)
 - [Inventory onboarding](docs/inventory-onboarding.md)
 - [Config backup scheduling](docs/config-backup-scheduling.md)
+- [VLAN workflow hardening](docs/vlan-workflow-hardening.md)
 - [Driver validation checklist](docs/lab-validation.md)
 - [Lab validation framework](docs/lab-validation-framework.md)
 - [Password change rollout](docs/password-change-rollout.md)
