@@ -51,6 +51,7 @@ class Permission(str, Enum):
     approve_change_executions = "approve_change_executions"
     simulate_change_executions = "simulate_change_executions"
     cancel_change_executions = "cancel_change_executions"
+    read_operator_console = "read_operator_console"
 
 
 ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
@@ -63,6 +64,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.read_config_backups,
             Permission.read_vlan_workflows,
             Permission.read_change_executions,
+            Permission.read_operator_console,
         }
     ),
     Role.network_operator: frozenset(
@@ -80,6 +82,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.read_change_executions,
             Permission.plan_change_executions,
             Permission.simulate_change_executions,
+            Permission.read_operator_console,
         }
     ),
     Role.operator: frozenset({Permission.read_devices, Permission.read_jobs, Permission.run_job}),
@@ -109,6 +112,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.plan_change_executions,
             Permission.simulate_change_executions,
             Permission.cancel_change_executions,
+            Permission.read_operator_console,
         }
     ),
     Role.security_admin: frozenset(
@@ -132,6 +136,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.approve_vlan_workflows,
             Permission.read_change_executions,
             Permission.approve_change_executions,
+            Permission.read_operator_console,
         }
     ),
     Role.auditor: frozenset({Permission.read_devices, Permission.read_jobs, Permission.read_backups, Permission.read_audit}),
