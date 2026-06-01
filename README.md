@@ -35,6 +35,7 @@ Supported and modeled families:
 - Hardened VLAN workflow records with validation, impact preview, dry-run command plans, rollback previews, approvals, and audit events.
 - Simulation-only change execution orchestration for password rollout, VLAN workflow, and config-backup dependency timelines.
 - Read-only operator console backend summaries for health, safety posture, pending approvals, activity, and risk.
+- Read-only observability, audit export, compliance snapshots, operational reports, device readiness reports, and metrics summaries.
 - Encrypted backup storage and masked diffs.
 - Device locks with expiration.
 - Structured audit events with secret masking before database write.
@@ -168,6 +169,25 @@ Endpoints are available under `/api/v1/operator-console`:
 - `GET /change-executions`
 
 No operator-console endpoint runs discovery, validation, simulation, backup collection, restore, apply, or device commands. Responses contain only summaries and sanitized metadata.
+
+## Observability And Reporting
+
+The Observability layer is a read-only/export-only reporting API for audit exports, operational reports, compliance snapshots, safety posture, workflow activity, device readiness, and metrics summaries.
+
+Endpoints are available under `/api/v1/observability`:
+
+- `GET /audit-events`
+- `GET /audit-export`
+- `GET /operational-report`
+- `GET /compliance-snapshot`
+- `GET /safety-posture`
+- `GET /workflow-activity`
+- `GET /device-readiness`
+- `GET /metrics-summary`
+
+JSON reports require `read_observability`. CSV/full audit exports require `export_audit_reports`. Export limits default to 100 records and are capped at 5000 records.
+
+This layer never runs workflow execution, simulation, config backup collection, lab validation, credential validation, transport open, or device commands. Metadata is recursively sanitized before JSON and CSV output, and reports never return raw configs, passwords, tokens, private keys, command output, or credential secret material.
 
 ## Install For Development
 
@@ -395,6 +415,7 @@ Windows portable:
 - VLAN workflow hardening is preparation-only; it validates, previews, plans, and approves but never sends VLAN commands to devices.
 - Change execution orchestration is simulation-only; it never opens transports, never sends commands, and exposes no `/apply` or destructive `/run`.
 - Operator console endpoints are GET-only; they never execute workflows, collect backups, validate labs, simulate changes, or return secrets/raw configs.
+- Observability endpoints are GET-only read/export routes; they never execute workflows, collect backups, validate labs, simulate changes, open transports, or return secrets/raw configs.
 
 ## Documentation
 
@@ -404,6 +425,7 @@ Windows portable:
 - [VLAN workflow hardening](docs/vlan-workflow-hardening.md)
 - [Change execution orchestrator](docs/change-execution-orchestrator.md)
 - [Operator console backend](docs/operator-console-backend.md)
+- [Observability audit reporting](docs/observability-audit-reporting.md)
 - [Driver validation checklist](docs/lab-validation.md)
 - [Lab validation framework](docs/lab-validation-framework.md)
 - [Password change rollout](docs/password-change-rollout.md)

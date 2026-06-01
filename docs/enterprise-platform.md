@@ -93,6 +93,7 @@ Database-backed runtime objects:
 - VLAN workflow validation requests, per-device readiness rows, approval metadata, planned dry-run commands, rollback previews, and audit events.
 - simulation-only change execution records, step graphs, orchestration locks, approvals, and audit events.
 - read-only operator console summaries derived from existing persisted runtime objects.
+- read-only observability and reporting outputs derived from existing persisted runtime objects.
 
 Repositories live under `app/repositories/` and are the only layer that performs SQLAlchemy queries for enterprise runtime objects. Routers do not contain SQLAlchemy queries.
 
@@ -315,6 +316,42 @@ RBAC adds `read_operator_console` for `viewer`, `network_operator`, `network_adm
 
 Responses intentionally contain only counts, statuses, IDs, timestamps, and sanitized metadata. They do not return passwords, encrypted credential material, raw config text, private keys, or raw transcripts.
 
+## Observability, Audit Export, And Reporting
+
+The Observability layer is a read-only/export-only API for operational reporting and future dashboard/SIEM integration. It adds no workflow execution and no new persisted state.
+
+It aggregates existing tables for:
+
+- unified audit export;
+- operational reports;
+- compliance snapshots;
+- safety posture reports;
+- workflow activity reports;
+- device readiness reports;
+- metrics summaries.
+
+Observability endpoints:
+
+- `GET /api/v1/observability/audit-events`
+- `GET /api/v1/observability/audit-export`
+- `GET /api/v1/observability/operational-report`
+- `GET /api/v1/observability/compliance-snapshot`
+- `GET /api/v1/observability/safety-posture`
+- `GET /api/v1/observability/workflow-activity`
+- `GET /api/v1/observability/device-readiness`
+- `GET /api/v1/observability/metrics-summary`
+
+All endpoints are GET-only. There is no apply, run, simulate, backup, validate, POST, PUT, PATCH, or DELETE action in this router.
+
+The report sanitizer recursively masks password, pass, secret, token, API key, private key, credential secret material, auth secret material, raw config, running/startup/candidate config, command output, and backup content fields. It keeps safe IDs, statuses, counts, timestamps, workflow type, device ID, hostname, vendor, and model metadata. Sanitization is deterministic and does not mutate inputs.
+
+RBAC adds:
+
+- `read_observability` for `viewer`, `network_operator`, `network_admin`, `security_admin`, `admin`, and `super_admin`;
+- `export_audit_reports` for `network_admin`, `security_admin`, `admin`, and `super_admin`.
+
+`read_observability` grants no manage, approve, simulate, cancel, run, backup, validate, or apply permissions.
+
 ## Change Workflow
 
 The intended production flow is:
@@ -489,6 +526,7 @@ Diff output is produced with `difflib.unified_diff` and masked before it leaves 
 - VLAN workflow hardening cannot run config commands, save commands, password changes, VLAN changes, ACL changes, port changes, or restore/apply actions.
 - Change Execution Orchestrator simulation cannot open transports, send commands, save configs, collect backups, run password batches, or apply VLAN/ACL/port changes.
 - Operator Console Backend cannot mutate state; it performs read-only aggregation and exposes no POST, PUT, PATCH, DELETE, apply, run, simulate, backup, or validation action endpoints.
+- Observability reporting cannot mutate state; it performs read-only aggregation/export and exposes no POST, PUT, PATCH, DELETE, apply, run, simulate, backup, or validation action endpoints.
 
 Tasks that violate a safety gate are marked `failed` or `skipped` with a sanitized reason.
 
@@ -587,6 +625,7 @@ Current tests cover:
 - RBAC header permissions;
 - existing CLI transport/backup tests.
 - database repository and persistence tests for credentials, jobs, tasks, audit, backups, locks, and execution flow.
+- observability sanitization, repository aggregation, JSON/CSV export, RBAC, empty state, and safety tests.
 
 Real devices are not required for unit tests. Lab validation should add sanitized golden outputs and command transcripts by vendor/model/firmware.
 
