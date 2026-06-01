@@ -34,6 +34,7 @@ Supported and modeled families:
 - Config backup jobs, persisted schedules, sanitized snapshots, sanitized diffs, drift reports, retention policy, and restore plan previews.
 - Hardened VLAN workflow records with validation, impact preview, dry-run command plans, rollback previews, approvals, and audit events.
 - Simulation-only change execution orchestration for password rollout, VLAN workflow, and config-backup dependency timelines.
+- Read-only operator console backend summaries for health, safety posture, pending approvals, activity, and risk.
 - Encrypted backup storage and masked diffs.
 - Device locks with expiration.
 - Structured audit events with secret masking before database write.
@@ -150,6 +151,24 @@ Invoke-RestMethod -Method Post `
 
 The workflow under `/api/v1/change-executions` supports validate, plan, submit, approve/reject, reserve-locks, mark-ready, simulate, cancel, reports, audit, and locks. There is no `/apply` endpoint and no destructive `/run` endpoint.
 
+## Operator Console Backend
+
+The Operator Console Backend prepares the API surface for a future UI. It is read-only and aggregates platform state across inventory, credentials, lab validation, config backups, VLAN workflows, password rollouts, change execution simulations, approvals, audit activity, risk, and safety posture.
+
+Endpoints are available under `/api/v1/operator-console`:
+
+- `GET /dashboard`
+- `GET /health`
+- `GET /safety`
+- `GET /workflows`
+- `GET /pending-approvals`
+- `GET /recent-activity`
+- `GET /risk-summary`
+- `GET /device-health`
+- `GET /change-executions`
+
+No operator-console endpoint runs discovery, validation, simulation, backup collection, restore, apply, or device commands. Responses contain only summaries and sanitized metadata.
+
 ## Install For Development
 
 ```powershell
@@ -263,6 +282,7 @@ Persisted enterprise objects:
 - config backup jobs, persisted schedules, sanitized snapshots, sanitized diffs, and restore plan previews.
 - VLAN workflow requests, per-device validation rows, approvals, and VLAN workflow audit events.
 - change execution simulations, steps, database-only locks, approvals, and audit events.
+- operator console read-only summaries derived from existing persisted objects.
 
 Alembic migration `20260530_0001` creates the enterprise tables. Migration `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change secrets. Migration `20260530_0003` adds lab validation records, sanitized transcripts, and checklists. Migration `20260530_0004` adds inventory onboarding metadata, import batches, and import rows. Migration `20260531_0005` adds config backup jobs, schedules, snapshots, diffs, and restore plan previews. Migration `20260531_0006` adds VLAN workflow validation, planning, approvals, and audit tables. Migration `20260531_0007` adds simulation-only change execution orchestration tables. All migrations support downgrade. SQLite is supported for unit and integration tests through portable UUID, JSON, and INET column mappings.
 
@@ -374,6 +394,7 @@ Windows portable:
 - Config backup scheduling stores sanitized snapshots and restore previews only; it never applies restore plans to devices.
 - VLAN workflow hardening is preparation-only; it validates, previews, plans, and approves but never sends VLAN commands to devices.
 - Change execution orchestration is simulation-only; it never opens transports, never sends commands, and exposes no `/apply` or destructive `/run`.
+- Operator console endpoints are GET-only; they never execute workflows, collect backups, validate labs, simulate changes, or return secrets/raw configs.
 
 ## Documentation
 
@@ -382,6 +403,7 @@ Windows portable:
 - [Config backup scheduling](docs/config-backup-scheduling.md)
 - [VLAN workflow hardening](docs/vlan-workflow-hardening.md)
 - [Change execution orchestrator](docs/change-execution-orchestrator.md)
+- [Operator console backend](docs/operator-console-backend.md)
 - [Driver validation checklist](docs/lab-validation.md)
 - [Lab validation framework](docs/lab-validation-framework.md)
 - [Password change rollout](docs/password-change-rollout.md)

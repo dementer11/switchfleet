@@ -92,6 +92,7 @@ Database-backed runtime objects:
 - config backup jobs, persisted schedules, sanitized snapshots, sanitized diffs, drift reports, retention policy state, and restore plan previews.
 - VLAN workflow validation requests, per-device readiness rows, approval metadata, planned dry-run commands, rollback previews, and audit events.
 - simulation-only change execution records, step graphs, orchestration locks, approvals, and audit events.
+- read-only operator console summaries derived from existing persisted runtime objects.
 
 Repositories live under `app/repositories/` and are the only layer that performs SQLAlchemy queries for enterprise runtime objects. Routers do not contain SQLAlchemy queries.
 
@@ -278,6 +279,42 @@ Change execution endpoints:
 
 There is no apply permission because no apply endpoint exists. `viewer` can read, `network_operator` can plan and simulate, `network_admin` can manage and cancel, `security_admin` can approve, and `admin`/`super_admin` have all change execution permissions.
 
+## Operator Console Backend
+
+The Operator Console Backend is a read-only aggregation API for a future UI. It does not add a frontend and does not add any workflow action endpoint.
+
+The console service reads existing tables and returns summaries for:
+
+- health and device readiness;
+- real-apply safety posture;
+- inventory status;
+- config backup status;
+- lab validation status;
+- password rollout jobs;
+- VLAN workflow requests;
+- change execution simulations;
+- pending approvals;
+- recent activity;
+- risk summary.
+
+Operator console endpoints:
+
+- `GET /api/v1/operator-console/dashboard`
+- `GET /api/v1/operator-console/health`
+- `GET /api/v1/operator-console/safety`
+- `GET /api/v1/operator-console/workflows`
+- `GET /api/v1/operator-console/pending-approvals`
+- `GET /api/v1/operator-console/recent-activity`
+- `GET /api/v1/operator-console/risk-summary`
+- `GET /api/v1/operator-console/device-health`
+- `GET /api/v1/operator-console/change-executions`
+
+All operator console endpoints are GET-only. They do not run discovery, credential validation, lab validation, config backup collection, restore planning, VLAN planning, change execution simulation, password rollout batches, or device apply.
+
+RBAC adds `read_operator_console` for `viewer`, `network_operator`, `network_admin`, `security_admin`, `admin`, and `super_admin`. This permission grants no write, approval, simulation, backup, restore, or apply permissions.
+
+Responses intentionally contain only counts, statuses, IDs, timestamps, and sanitized metadata. They do not return passwords, encrypted credential material, raw config text, private keys, or raw transcripts.
+
 ## Change Workflow
 
 The intended production flow is:
@@ -451,6 +488,7 @@ Diff output is produced with `difflib.unified_diff` and masked before it leaves 
 - config backup jobs and restore plan previews cannot run config commands, save commands, password changes, VLAN changes, ACL changes, port changes, or restore apply.
 - VLAN workflow hardening cannot run config commands, save commands, password changes, VLAN changes, ACL changes, port changes, or restore/apply actions.
 - Change Execution Orchestrator simulation cannot open transports, send commands, save configs, collect backups, run password batches, or apply VLAN/ACL/port changes.
+- Operator Console Backend cannot mutate state; it performs read-only aggregation and exposes no POST, PUT, PATCH, DELETE, apply, run, simulate, backup, or validation action endpoints.
 
 Tasks that violate a safety gate are marked `failed` or `skipped` with a sanitized reason.
 
