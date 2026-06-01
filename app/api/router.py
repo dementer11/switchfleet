@@ -13,6 +13,7 @@ from app.api.v1 import (
     inventory,
     jobs,
     lab_validations,
+    observability,
     operator_console,
     vlan_workflows,
 )
@@ -29,4 +30,5 @@ api_router.include_router(config_backups.router, prefix="/config-backups", tags=
 api_router.include_router(vlan_workflows.router, prefix="/vlan-workflows", tags=["vlan-workflows"])
 api_router.include_router(change_executions.router, prefix="/change-executions", tags=["change-executions"])
 api_router.include_router(operator_console.router, prefix="/operator-console", tags=["operator-console"])
+api_router.include_router(observability.router, prefix="/observability", tags=["observability"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])

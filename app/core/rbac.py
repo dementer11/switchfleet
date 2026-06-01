@@ -52,6 +52,8 @@ class Permission(str, Enum):
     simulate_change_executions = "simulate_change_executions"
     cancel_change_executions = "cancel_change_executions"
     read_operator_console = "read_operator_console"
+    read_observability = "read_observability"
+    export_audit_reports = "export_audit_reports"
 
 
 ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
@@ -65,6 +67,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.read_vlan_workflows,
             Permission.read_change_executions,
             Permission.read_operator_console,
+            Permission.read_observability,
         }
     ),
     Role.network_operator: frozenset(
@@ -83,6 +86,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.plan_change_executions,
             Permission.simulate_change_executions,
             Permission.read_operator_console,
+            Permission.read_observability,
         }
     ),
     Role.operator: frozenset({Permission.read_devices, Permission.read_jobs, Permission.run_job}),
@@ -113,6 +117,8 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.simulate_change_executions,
             Permission.cancel_change_executions,
             Permission.read_operator_console,
+            Permission.read_observability,
+            Permission.export_audit_reports,
         }
     ),
     Role.security_admin: frozenset(
@@ -137,6 +143,8 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.read_change_executions,
             Permission.approve_change_executions,
             Permission.read_operator_console,
+            Permission.read_observability,
+            Permission.export_audit_reports,
         }
     ),
     Role.auditor: frozenset({Permission.read_devices, Permission.read_jobs, Permission.read_backups, Permission.read_audit}),
