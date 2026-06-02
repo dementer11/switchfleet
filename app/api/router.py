@@ -9,6 +9,7 @@ from app.api.v1 import (
     config_backups,
     credentials,
     devices,
+    driver_runtime,
     health,
     inventory,
     jobs,
@@ -21,6 +22,7 @@ from app.api.v1 import (
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(health.router, tags=["system"])
 api_router.include_router(devices.router, prefix="/devices", tags=["devices"])
+api_router.include_router(driver_runtime.router, prefix="/driver-runtime", tags=["driver-runtime"])
 api_router.include_router(credentials.router, prefix="/credentials", tags=["credentials"])
 api_router.include_router(backups.router, tags=["backups"])
 api_router.include_router(jobs.router, prefix="/jobs", tags=["jobs"])

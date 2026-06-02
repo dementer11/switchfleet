@@ -25,6 +25,14 @@ class SafetyError(PlatformError):
     """Raised when an execution request violates platform safety gates."""
 
 
+class RealApplyDisabledError(SafetyError):
+    """Raised when a runtime attempts real device interaction while real apply is disabled."""
+
+
+class ConfigApplyNotAllowedError(SafetyError):
+    """Raised when config-changing runtime operations are not allowed for a device decision."""
+
+
 class NotFoundError(PlatformError):
     """Raised when a runtime object is not found."""
 

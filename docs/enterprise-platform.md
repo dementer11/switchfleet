@@ -94,6 +94,7 @@ Database-backed runtime objects:
 - simulation-only change execution records, step graphs, orchestration locks, approvals, and audit events.
 - read-only operator console summaries derived from existing persisted runtime objects.
 - read-only observability and reporting outputs derived from existing persisted runtime objects.
+- read-only driver runtime decisions derived from vendor/model/platform metadata.
 
 Repositories live under `app/repositories/` and are the only layer that performs SQLAlchemy queries for enterprise runtime objects. Routers do not contain SQLAlchemy queries.
 
@@ -352,6 +353,53 @@ RBAC adds:
 
 `read_observability` grants no manage, approve, simulate, cancel, run, backup, validate, or apply permissions.
 
+## Transport Strategy And Driver Runtime
+
+The Driver Runtime layer is a read-only decision service for vendor-aware transport selection. It does not replace Netmiko where Netmiko is appropriate, and it does not force every device through a universal wrapper.
+
+Transport kinds:
+
+- `netmiko` for profiled Cisco, Huawei, HPE/Comware, HPE ProCurve/ArubaOS-Switch, and Dell families;
+- `paramiko` for direct SSH/session-control fallback and Generic SSH read-only profiles;
+- `custom_cli` for vendor-specific nonstandard CLI state machines such as Eltex and Bulat;
+- `icmp_only` for health/readiness only;
+- `unsupported` for unknown or unsafe profiles.
+
+Driver families:
+
+- `cisco_ios`
+- `cisco_nxos`
+- `cisco_asa`
+- `huawei_vrp`
+- `hpe_comware`
+- `hpe_procurve`
+- `aruba_os_switch`
+- `eltex`
+- `bulat`
+- `dell_os`
+- `generic_ssh`
+- `icmp`
+- `unknown`
+
+Endpoints:
+
+- `GET /api/v1/driver-runtime/profiles`
+- `GET /api/v1/driver-runtime/profiles/{family}`
+- `GET /api/v1/driver-runtime/decision`
+- `GET /api/v1/driver-runtime/devices/{device_id}/decision`
+- `GET /api/v1/driver-runtime/summary`
+- `GET /api/v1/driver-runtime/safety`
+
+All endpoints are GET-only. There is no apply, run, POST, PUT, PATCH, DELETE, session-open, command execution, backup collection, lab validation, or credential validation action in this router.
+
+Every runtime decision keeps:
+
+- `config_apply_allowed=false`;
+- `real_apply_certified=false`;
+- `real_apply_certified_count=0`.
+
+RBAC adds `read_driver_runtime` for `viewer`, `network_operator`, `network_admin`, `security_admin`, `admin`, and `super_admin`. The permission does not grant manage, approve, simulate, cancel, run, session-open, or apply rights.
+
 ## Change Workflow
 
 The intended production flow is:
@@ -527,6 +575,7 @@ Diff output is produced with `difflib.unified_diff` and masked before it leaves 
 - Change Execution Orchestrator simulation cannot open transports, send commands, save configs, collect backups, run password batches, or apply VLAN/ACL/port changes.
 - Operator Console Backend cannot mutate state; it performs read-only aggregation and exposes no POST, PUT, PATCH, DELETE, apply, run, simulate, backup, or validation action endpoints.
 - Observability reporting cannot mutate state; it performs read-only aggregation/export and exposes no POST, PUT, PATCH, DELETE, apply, run, simulate, backup, or validation action endpoints.
+- Driver Runtime cannot mutate state; it performs read-only transport decisions and exposes no POST, PUT, PATCH, DELETE, apply, run, session-open, or command execution endpoints.
 
 Tasks that violate a safety gate are marked `failed` or `skipped` with a sanitized reason.
 
@@ -626,6 +675,7 @@ Current tests cover:
 - existing CLI transport/backup tests.
 - database repository and persistence tests for credentials, jobs, tasks, audit, backups, locks, and execution flow.
 - observability sanitization, repository aggregation, JSON/CSV export, RBAC, empty state, and safety tests.
+- driver runtime matrix decisions, adapter safety, API GET-only behavior, RBAC, and integration with inventory devices.
 
 Real devices are not required for unit tests. Lab validation should add sanitized golden outputs and command transcripts by vendor/model/firmware.
 
