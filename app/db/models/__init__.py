@@ -16,7 +16,7 @@ from app.db.models.config_backup import (
     ConfigSnapshot,
     ConfigSnapshotDiff,
 )
-from app.db.models.credential import Credential, CredentialAssignment
+from app.db.models.credential import Credential, CredentialAssignment, CredentialSecret
 from app.db.models.device import Device
 from app.db.models.inventory import InventoryImportBatch, InventoryImportRow
 from app.db.models.job import Job, JobTask
@@ -50,6 +50,7 @@ __all__ = [
     "ConfigSnapshotDiff",
     "Credential",
     "CredentialAssignment",
+    "CredentialSecret",
     "Device",
     "DeviceLock",
     "InventoryImportBatch",

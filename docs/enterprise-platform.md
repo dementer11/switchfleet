@@ -71,6 +71,7 @@ The SQLAlchemy model set covers:
 - `change_execution_locks`
 - `change_execution_approvals`
 - `change_execution_audit_events`
+- `credential_secrets`
 
 UUID primary keys are used for operational entities. Capabilities, dry-run payloads, tags, commands, and audit metadata use JSONB-compatible fields.
 
@@ -95,10 +96,11 @@ Database-backed runtime objects:
 - read-only operator console summaries derived from existing persisted runtime objects.
 - read-only observability and reporting outputs derived from existing persisted runtime objects.
 - read-only driver runtime decisions derived from vendor/model/platform metadata.
+- encrypted credential vault secret metadata and lab-only apply readiness decisions.
 
 Repositories live under `app/repositories/` and are the only layer that performs SQLAlchemy queries for enterprise runtime objects. Routers do not contain SQLAlchemy queries.
 
-Alembic revision `20260530_0001` creates the core enterprise tables and includes a downgrade path. Revision `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change execution secrets. Revision `20260530_0003` adds lab validation approvals, sanitized transcripts, and checklists. Revision `20260530_0004` adds inventory onboarding device metadata, import batches, and import rows. Revision `20260531_0005` adds config backup jobs, schedules, snapshots, diffs, and restore plan previews. Revision `20260531_0006` adds VLAN workflow validation, planning, approvals, and audit tables. Revision `20260531_0007` adds simulation-only change execution orchestration tables. The migrations use PostgreSQL-native UUID, JSONB, and INET types on PostgreSQL and portable UUID string, JSON, and string IP columns on SQLite test databases.
+Alembic revision `20260530_0001` creates the core enterprise tables and includes a downgrade path. Revision `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change execution secrets. Revision `20260530_0003` adds lab validation approvals, sanitized transcripts, and checklists. Revision `20260530_0004` adds inventory onboarding device metadata, import batches, and import rows. Revision `20260531_0005` adds config backup jobs, schedules, snapshots, diffs, and restore plan previews. Revision `20260531_0006` adds VLAN workflow validation, planning, approvals, and audit tables. Revision `20260531_0007` adds simulation-only change execution orchestration tables. Revision `20260602_0008` adds credential vault secret metadata for lab-only apply readiness. The migrations use PostgreSQL-native UUID, JSONB, and INET types on PostgreSQL and portable UUID string, JSON, and string IP columns on SQLite test databases.
 
 ## Inventory Onboarding Workflow
 

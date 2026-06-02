@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     command_timeout_seconds: int = 60
     connect_timeout_seconds: int = 15
     allow_real_device_apply: bool = False
+    lab_real_apply_enabled: bool = False
+    production_real_apply_enabled: bool = False
+    lab_device_allowlist: str = ""
     backup_before_apply: bool = True
 
     @model_validator(mode="after")

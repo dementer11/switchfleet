@@ -90,7 +90,7 @@ The intended sequence remains:
 4. lab-only real apply;
 5. production apply readiness.
 
-This stage implements step 1 only.
+The current platform has also added the lab-only readiness layer for steps 2, 3, and 4. Production apply remains disabled.
 
 ## Legacy CLI Safety Alignment
 
@@ -136,3 +136,32 @@ Legacy backup remains read-only:
 - no Netmiko `ConnectHandler`, Paramiko `SSHClient`, or Scrapli session is opened by tests.
 
 Real apply is still postponed until the Apply Safety Kernel and lab-only real apply stages.
+
+## Driver & Lab Apply Readiness
+
+The driver/apply contour now has explicit vendor driver contracts and command templates. This does not turn on production apply.
+
+The Apply Safety Kernel is the single gate for any lab command send. It requires:
+
+- `execution_mode=lab_apply`;
+- `NCP_ALLOW_REAL_DEVICE_APPLY=true`;
+- `NCP_LAB_REAL_APPLY_ENABLED=true`;
+- `NCP_PRODUCTION_REAL_APPLY_ENABLED=false`;
+- lab-tagged and allowlisted device;
+- supported vendor contract;
+- safe runtime decision;
+- usable credential vault reference;
+- sanitized config backup;
+- approved lab validation;
+- approval metadata;
+- matching dry-run/simulation hash;
+- command plan matching vendor templates;
+- rollback preview;
+- reserved device lock;
+- `execute_lab_apply` permission.
+
+`/api/v1/lab-apply/evaluate` performs the safety decision only and does not open transport or decrypt credentials.
+
+`/api/v1/lab-apply/execute` denies before credential decrypt and before transport creation unless all gates are satisfied. By default it uses fake lab transport and records only redacted intended commands. Future Netmiko, Paramiko, or custom CLI lab execution must remain behind this same kernel.
+
+Production apply is still denied, and no generic `/apply` or destructive `/run` endpoint is exposed.

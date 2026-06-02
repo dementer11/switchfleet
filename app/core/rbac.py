@@ -55,6 +55,11 @@ class Permission(str, Enum):
     read_observability = "read_observability"
     export_audit_reports = "export_audit_reports"
     read_driver_runtime = "read_driver_runtime"
+    read_credential_metadata = "read_credential_metadata"
+    manage_credential_secrets = "manage_credential_secrets"
+    use_credential_secrets = "use_credential_secrets"
+    evaluate_lab_apply = "evaluate_lab_apply"
+    execute_lab_apply = "execute_lab_apply"
 
 
 ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
@@ -70,6 +75,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.read_operator_console,
             Permission.read_observability,
             Permission.read_driver_runtime,
+            Permission.read_credential_metadata,
         }
     ),
     Role.network_operator: frozenset(
@@ -90,6 +96,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.read_operator_console,
             Permission.read_observability,
             Permission.read_driver_runtime,
+            Permission.read_credential_metadata,
         }
     ),
     Role.operator: frozenset({Permission.read_devices, Permission.read_jobs, Permission.run_job}),
@@ -123,6 +130,11 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.read_observability,
             Permission.export_audit_reports,
             Permission.read_driver_runtime,
+            Permission.read_credential_metadata,
+            Permission.manage_credential_secrets,
+            Permission.use_credential_secrets,
+            Permission.evaluate_lab_apply,
+            Permission.execute_lab_apply,
         }
     ),
     Role.security_admin: frozenset(
@@ -150,6 +162,8 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.read_observability,
             Permission.export_audit_reports,
             Permission.read_driver_runtime,
+            Permission.read_credential_metadata,
+            Permission.evaluate_lab_apply,
         }
     ),
     Role.auditor: frozenset({Permission.read_devices, Permission.read_jobs, Permission.read_backups, Permission.read_audit}),
