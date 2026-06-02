@@ -230,6 +230,23 @@ The lab apply API is fully gated. `/evaluate` never opens transport or decrypts 
 
 By default `/execute` uses fake lab transport and records intended redacted commands. Production apply remains disabled, `production_apply` is denied, and no generic `/apply` or destructive `/run` endpoint is added.
 
+## Runnable Lab Prototype
+
+The runnable lab prototype adds a local helper for testing 3-4 lab devices without writing SQL:
+
+```powershell
+python scripts/lab_prototype.py bootstrap-admin
+python scripts/lab_prototype.py import-devices examples/lab/devices.example.yaml
+python scripts/lab_prototype.py add-credential --name lab-admin --username admin --password-prompt
+python scripts/lab_prototype.py check-runtime --device sw1-lab
+python scripts/lab_prototype.py backup --device sw1-lab --credential lab-admin
+python scripts/lab_prototype.py dry-run --device sw1-lab --operation vlan_create --vlan-id 123 --name TEST_VLAN
+python scripts/lab_prototype.py evaluate-apply --device sw1-lab --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --prototype-auto-gates
+python scripts/lab_prototype.py execute-apply --device sw1-lab --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --prototype-auto-gates --simulation-hash <hash-from-dry-run> --real-lab
+```
+
+Real lab execution remains behind the Apply Safety Kernel and requires lab env flags, allowlist, credential ref, fresh backup, lab validation, approval metadata, matching command hash, rollback preview, and lock. See [Runnable Lab Prototype](docs/runnable-lab-prototype.md).
+
 ## Install For Development
 
 ```powershell

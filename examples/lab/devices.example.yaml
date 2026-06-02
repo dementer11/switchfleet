@@ -1,0 +1,44 @@
+devices:
+  - hostname: sw1-lab
+    management_ip: 192.168.88.11
+    vendor: Cisco
+    model: Catalyst 2960
+    platform: ios
+    driver_name: CiscoIOSDriver
+    site: lab
+    tags:
+      lab: true
+      environment: lab
+
+  - hostname: sw2-lab
+    management_ip: 192.168.88.12
+    vendor: Huawei
+    model: S5720
+    platform: vrp
+    driver_name: HuaweiVRPDriver
+    site: lab
+    tags:
+      lab: true
+      environment: lab
+
+  - hostname: sw3-lab
+    management_ip: 192.168.88.13
+    vendor: HPE
+    model: 5130
+    platform: comware
+    driver_name: HPComwareDriver
+    site: lab
+    tags:
+      lab: true
+      environment: lab
+
+  - hostname: sw4-lab
+    management_ip: 192.168.88.14
+    vendor: Dell
+    model: PowerConnect
+    platform: dell
+    driver_name: DellPowerConnectDriver
+    site: lab
+    tags:
+      lab: true
+      environment: lab
