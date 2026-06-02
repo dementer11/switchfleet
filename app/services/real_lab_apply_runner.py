@@ -4,13 +4,13 @@ import socket
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Protocol
+from typing import Any, Callable, Protocol
 
 from app.core.exceptions import SafetyError
 from app.core.transport_strategy import TransportDecision, TransportKind
 from app.core.vendor_driver_contracts import get_vendor_driver_contract
+from app.schemas.lab_apply import ApplySafetyDecisionRead
 from app.schemas.lab_apply import LabApplyCommand
-from app.services.apply_safety_kernel import ApplySafetyEvaluation
 from app.services.transport_runtime import RuntimeCredentials
 from app.services.vendor_command_templates import RenderedCommand
 from app.transports.base import CommandExecutionResult
@@ -46,6 +46,34 @@ class LabCommandTransport(Protocol):
         ...
 
     def run_command(self, command: str, timeout_seconds: int = 60) -> CommandExecutionResult:
+        ...
+
+
+class RuntimeDevice(Protocol):
+    @property
+    def management_ip(self) -> Any | None:
+        ...
+
+    @property
+    def ip_address(self) -> Any:
+        ...
+
+
+class RuntimeApplyEvaluation(Protocol):
+    @property
+    def decision(self) -> ApplySafetyDecisionRead:
+        ...
+
+    @property
+    def device(self) -> Any | None:
+        ...
+
+    @property
+    def transport_decision(self) -> TransportDecision | None:
+        ...
+
+    @property
+    def internal_commands(self) -> list[RenderedCommand]:
         ...
 
 
@@ -174,7 +202,7 @@ class RealLabApplyRunner:
 
     def execute(
         self,
-        evaluation: ApplySafetyEvaluation,
+        evaluation: RuntimeApplyEvaluation,
         credentials: RuntimeCredentials,
         *,
         port: int = 22,

@@ -13,6 +13,8 @@ The platform is split into explicit layers:
 
 The enterprise API runtime is backed by SQLAlchemy repositories. API routers call services, services call repositories, and repositories encapsulate database operations. Tests use temporary SQLite through portable UUID, JSON, and INET type mappings; production is designed for PostgreSQL.
 
+The runnable lab prototype has a separate Excel-first mode for operators. That mode reads an Excel inventory directly, stores local JSON/JSONL state under `.switchfleet_lab/`, and does not require PostgreSQL, Alembic, or API startup.
+
 ## Technology Choices
 
 - FastAPI gives typed API contracts and OpenAPI for operators and future UI.
@@ -639,7 +641,9 @@ Lab validation endpoints:
 
 ## Runnable Lab Prototype
 
-The runnable lab prototype provides `scripts/lab_prototype.py` for local operator testing against 3-4 lab devices. It imports lab devices, creates encrypted credential refs, checks runtime decisions, collects sanitized read-only backups, renders dry-run command hashes, evaluates safety gates, and can execute lab-only Netmiko/Paramiko command plans after the Apply Safety Kernel allows the request.
+The primary runnable lab prototype provides `scripts/excel_lab.py` for local operator testing against 3-4 lab devices from an Excel inventory file. It creates encrypted file credential refs, checks runtime decisions, collects sanitized read-only backups, renders dry-run command hashes, evaluates file-mode safety gates, and can execute lab-only Netmiko/Paramiko command plans after the safety decision allows the request.
+
+`scripts/lab_prototype.py` remains DB-backed enterprise prototype mode. Use it only when SQLAlchemy/PostgreSQL prototype records are intentionally required.
 
 This is not production apply. There is no generic `/apply`, no destructive `/run`, and production apply remains denied.
 

@@ -41,7 +41,13 @@ DEFAULT_ROLES = frozenset({Role.network_admin})
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="lab", description="Runnable lab prototype helper.")
+    parser = argparse.ArgumentParser(
+        prog="lab",
+        description=(
+            "Runnable lab prototype helper for DB-backed/enterprise mode. "
+            "For Excel inventory lab mode use scripts/excel_lab.py."
+        ),
+    )
     parser.add_argument("--actor", default=DEFAULT_ACTOR)
     parser.add_argument("--roles", default="network_admin")
     sub = parser.add_subparsers(dest="command", required=True)

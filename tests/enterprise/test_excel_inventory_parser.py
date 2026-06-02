@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from openpyxl import Workbook
+
+from app.services.excel_inventory import ExcelInventoryError, load_excel_inventory, resolve_excel_device
+from tests.enterprise.excel_lab_helpers import EXCEL_HEADERS, write_inventory
+
+
+def test_excel_inventory_parses_user_columns_and_runtime_hints(tmp_path: Path) -> None:
+    path = write_inventory(
+        tmp_path / "inventory.xlsx",
+        [
+            ["Active", "huawei-lab", "S5720", "10.13.4.67", "HUAWEI", "Switch", "Lab", "NetOps"],
+            ["Active", "hpe-lab", "1910", "10.13.4.68", "Hewlett Packard", "Switch", "Lab", "NetOps"],
+            ["Active", "eltex-lab", "MES2448", "10.13.4.69", "Eltex", "Switch", "Lab", "NetOps"],
+            ["Active", "bulat-lab", "BS2500", "10.13.4.70", "Bulat", "Switch", "Lab", "NetOps"],
+            ["Active", "unknown-lab", "Unknown SNMP Product", "10.13.4.71", "Huawei", "Switch", "Lab", "NetOps"],
+            ["Service", "service-row", "n/a", "10.13.4.72", "n/a", "Service", "Lab", "NetOps"],
+        ],
+    )
+
+    devices = load_excel_inventory(path)
+
+    assert len(devices) == 5
+    assert devices[0].driver_name == "HuaweiVRPDriver"
+    assert devices[1].driver_name == "HPComwareDriver"
+    assert devices[2].driver_name == "EltexMESDriver"
+    assert devices[3].driver_name == "BulatBSDriver"
+    assert devices[4].driver_name is None
+    assert resolve_excel_device(devices, "10.13.4.67").label == "huawei-lab"
+    assert resolve_excel_device(devices, devices[0].id).label == "huawei-lab"
+
+
+def test_excel_inventory_missing_columns_and_duplicate_selector_are_friendly(tmp_path: Path) -> None:
+    broken = tmp_path / "broken.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(EXCEL_HEADERS[:-1])
+    workbook.save(broken)
+    workbook.close()
+
+    try:
+        load_excel_inventory(broken)
+    except ExcelInventoryError as exc:
+        assert "missing required column" in str(exc).casefold()
+    else:
+        raise AssertionError("Missing Excel columns were not rejected")
+
+    duplicated = write_inventory(
+        tmp_path / "duplicated.xlsx",
+        [
+            ["Active", "same-label", "Catalyst 2960", "10.13.4.67", "Cisco", "Switch", "Lab", "NetOps"],
+            ["Active", "same-label", "Catalyst 2960", "10.13.4.68", "Cisco", "Switch", "Lab", "NetOps"],
+        ],
+    )
+    devices = load_excel_inventory(duplicated)
+    try:
+        resolve_excel_device(devices, "same-label")
+    except ExcelInventoryError as exc:
+        assert "multiple rows" in str(exc).casefold()
+    else:
+        raise AssertionError("Duplicate Excel selector was not rejected")
