@@ -400,6 +400,23 @@ Every runtime decision keeps:
 
 RBAC adds `read_driver_runtime` for `viewer`, `network_operator`, `network_admin`, `security_admin`, `admin`, and `super_admin`. The permission does not grant manage, approve, simulate, cancel, run, session-open, or apply rights.
 
+### Legacy CLI Safety Alignment
+
+The legacy CLI remains separate from the enterprise database, but its driver registry and transport factory now respect the same runtime capability matrix through a compatibility bridge.
+
+Legacy alignment guarantees:
+
+- `driver_for` uses the matrix for known Cisco, Huawei VRP, HPE Comware, HPE ProCurve/ArubaOS-Switch, Dell, Eltex, and Bulat families;
+- Huawei Unknown Product and Unknown SNMP Product fail closed as unsupported instead of matching Huawei VRP only by vendor;
+- Generic SSH and ICMP-only devices do not become config-capable CLI targets;
+- `transport_for_plan` blocks config-changing plans before Netmiko or Paramiko transports are instantiated;
+- `--transport netmiko` and `--transport paramiko` cannot bypass unsupported, ICMP, Generic SSH, Eltex, Bulat, or unknown safety;
+- `netops apply` without `--dry-run` exits with a controlled safety error before credentials are requested, pre/post backup is run, or SSH transport is created;
+- `netops apply --dry-run` and the `plan-*` commands remain available for planning;
+- legacy `backup` remains read-only and must pass runtime decision safety before a transport is created.
+
+No Netmiko `ConnectHandler`, Paramiko `SSHClient`, Scrapli session, config mode, save command, commit command, or copy running-config startup-config operation is enabled by this alignment. Real CLI apply is still postponed until the Apply Safety Kernel and lab-only real apply stages.
+
 ## Change Workflow
 
 The intended production flow is:
@@ -576,6 +593,7 @@ Diff output is produced with `difflib.unified_diff` and masked before it leaves 
 - Operator Console Backend cannot mutate state; it performs read-only aggregation and exposes no POST, PUT, PATCH, DELETE, apply, run, simulate, backup, or validation action endpoints.
 - Observability reporting cannot mutate state; it performs read-only aggregation/export and exposes no POST, PUT, PATCH, DELETE, apply, run, simulate, backup, or validation action endpoints.
 - Driver Runtime cannot mutate state; it performs read-only transport decisions and exposes no POST, PUT, PATCH, DELETE, apply, run, session-open, or command execution endpoints.
+- Legacy CLI apply cannot bypass Driver Runtime decisions; destructive `netops apply` is blocked before SSH transport creation, while `--dry-run` and read-only backup remain available.
 
 Tasks that violate a safety gate are marked `failed` or `skipped` with a sanitized reason.
 
@@ -681,6 +699,6 @@ Real devices are not required for unit tests. Lab validation should add sanitize
 
 ## CLI Workflow Versus Enterprise API Workflow
 
-The CLI workflow in `src/netops_orchestrator` remains file-driven and is intentionally not coupled to the enterprise database. It reads inventory files, renders command plans, and can execute explicit CLI operations with operator-provided credentials.
+The CLI workflow in `src/netops_orchestrator` remains file-driven and is intentionally not coupled to the enterprise database. It reads inventory files, renders command plans, dry-runs legacy apply previews, and can run read-only backups where the runtime matrix allows a safe CLI transport. Destructive legacy apply is blocked before credentials or SSH transport creation.
 
 The Enterprise API workflow is stateful and database-backed. It stores devices, jobs, dry-runs, tasks, encrypted credentials, encrypted backups, audit events, and device locks. It keeps real network apply disabled by default and requires approval, backup, verification, lock acquisition, and audit before the safe executor path can run.

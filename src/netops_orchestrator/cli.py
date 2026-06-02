@@ -14,6 +14,7 @@ from .inventory import load_inventory
 from .models import AccessLevel, AclRule, CommandPlan, PortChange, VlanChange
 from .orchestrator import acl_plans, apply_plan, backup_config, backup_plans, password_plans, port_plans, vlan_plans
 from .plan_io import plans_to_dict, read_plans, write_plans
+from .runtime_compat import LegacyRuntimeSafetyError, assert_legacy_cli_apply_blocked, assert_plan_runtime_safe
 from .transports.factory import TRANSPORT_CHOICES, selected_transport_label, transport_for_plan
 from .transports.ssh_paramiko import SshCredentials
 
@@ -186,6 +187,12 @@ def _inventory(path: Path) -> None:
 
 
 def _apply(args: argparse.Namespace) -> None:
+    if not args.dry_run:
+        try:
+            assert_legacy_cli_apply_blocked()
+        except LegacyRuntimeSafetyError as exc:
+            raise SystemExit(str(exc)) from exc
+
     plans = _read_plan_file(args.plan_file) if args.plan_file else _plans_from_apply_args(args)
     if args.canary is not None:
         if args.canary < 1:
@@ -246,6 +253,7 @@ def _backup(args: argparse.Namespace) -> None:
                 raise SystemExit(1)
             continue
         try:
+            assert_plan_runtime_safe(plan, "backup")
             print(
                 f"capturing {plan.device.ip_address} with {plan.driver} "
                 f"via {selected_transport_label(plan, args.transport)}"
@@ -272,6 +280,7 @@ def _capture_backup_for_device(
     if not backup_plan.all_commands:
         print(f"{stage}-backup skipped for {plan.device.ip_address}: unsupported backup")
         return
+    assert_plan_runtime_safe(backup_plan, "backup")
     target_dir = args.backup_dir / stage
     print(f"{stage}-backup {plan.device.ip_address} via {selected_transport_label(backup_plan, args.transport)}")
     path = backup_config(backup_plan, _transport(backup_plan, credentials, args), target_dir, fail_on_error=True)
