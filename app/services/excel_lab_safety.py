@@ -1,0 +1,237 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+from app.core.config import Settings, get_settings
+from app.core.transport_strategy import DeviceFamily, TransportDecision, TransportKind
+from app.core.vendor_driver_contracts import ApplySupportLevel, VendorOperation, get_vendor_driver_contract
+from app.schemas.lab_apply import ApplySafetyDecisionRead, LabApplyCommand
+from app.services.driver_capability_matrix import DriverCapabilityMatrix
+from app.services.excel_inventory import ExcelInventoryDevice
+from app.services.file_credential_vault import FileCredentialVault
+from app.services.file_lab_state import FileLabState
+from app.services.vendor_command_templates import RenderedCommand, VendorCommandTemplateService, command_hash
+from app.utils.masking import mask_secrets
+
+
+FILE_MODE_REQUIRED_GATES = [
+    "environment_flags",
+    "device_allowlist",
+    "runtime_decision",
+    "vendor_contract",
+    "credential_reference",
+    "fresh_backup",
+    "lab_validation",
+    "simulation_hash",
+    "command_safety",
+    "lock_conflict",
+]
+
+
+@dataclass
+class ExcelLabSafetyRequest:
+    device: ExcelInventoryDevice
+    operation: VendorOperation
+    credential_ref: str | None
+    command_parameters: dict[str, Any]
+    simulation_hash: str | None
+    require_real_apply: bool = False
+    allow_lab_candidate: bool = True
+
+
+@dataclass
+class ExcelLabSafetyDecision:
+    allowed: bool
+    reasons: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    required_gates: list[str] = field(default_factory=lambda: list(FILE_MODE_REQUIRED_GATES))
+    satisfied_gates: list[str] = field(default_factory=list)
+    denied_gates: list[str] = field(default_factory=list)
+    safe_command_plan: list[LabApplyCommand] = field(default_factory=list)
+    internal_commands: list[RenderedCommand] = field(default_factory=list)
+    command_hash: str | None = None
+    selected_transport: str | None = None
+    driver_family: str | None = None
+    lab_only: bool = True
+    production_allowed: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "allowed": self.allowed,
+            "reasons": self.reasons,
+            "warnings": self.warnings,
+            "required_gates": self.required_gates,
+            "satisfied_gates": self.satisfied_gates,
+            "denied_gates": self.denied_gates,
+            "safe_command_plan": [command.model_dump() for command in self.safe_command_plan],
+            "command_hash": self.command_hash,
+            "selected_transport": self.selected_transport,
+            "driver_family": self.driver_family,
+            "lab_only": self.lab_only,
+            "production_allowed": self.production_allowed,
+        }
+
+    def as_apply_decision_read(self) -> ApplySafetyDecisionRead:
+        return ApplySafetyDecisionRead(
+            allowed=self.allowed,
+            reasons=self.reasons,
+            warnings=self.warnings,
+            required_gates=self.required_gates,
+            satisfied_gates=self.satisfied_gates,
+            denied_gates=self.denied_gates,
+            command_hash=self.command_hash,
+            simulation_hash=self.command_hash,
+            lab_only=True,
+            production_allowed=False,
+            driver_family=self.driver_family,
+            selected_transport=self.selected_transport,
+            safe_command_plan=self.safe_command_plan,
+        )
+
+
+class ExcelLabSafetyService:
+    def __init__(
+        self,
+        state: FileLabState,
+        vault: FileCredentialVault,
+        settings: Settings | None = None,
+        matrix: DriverCapabilityMatrix | None = None,
+        templates: VendorCommandTemplateService | None = None,
+    ):
+        self.state = state
+        self.vault = vault
+        self.settings = settings or get_settings()
+        self.matrix = matrix or DriverCapabilityMatrix()
+        self.templates = templates or VendorCommandTemplateService()
+
+    def evaluate(self, request: ExcelLabSafetyRequest) -> tuple[ExcelLabSafetyDecision, TransportDecision]:
+        reasons: list[str] = []
+        warnings: list[str] = []
+        satisfied: set[str] = set()
+        denied: set[str] = set()
+        decision = self.matrix.decide(
+            vendor=request.device.vendor,
+            model=request.device.model,
+            platform=request.device.platform,
+            driver_name=request.device.driver_name,
+            device_id=request.device.id,
+            hostname=request.device.hostname,
+        )
+        warnings.extend(decision.safety_warnings)
+
+        if request.require_real_apply:
+            if not self.settings.allow_real_device_apply:
+                self._deny("environment_flags", "NCP_ALLOW_REAL_DEVICE_APPLY must be true for real lab execution", reasons, denied)
+            if not self.settings.lab_real_apply_enabled:
+                self._deny("environment_flags", "NCP_LAB_REAL_APPLY_ENABLED must be true for real lab execution", reasons, denied)
+            if self.settings.production_real_apply_enabled:
+                self._deny("environment_flags", "NCP_PRODUCTION_REAL_APPLY_ENABLED must remain false", reasons, denied)
+            if "environment_flags" not in denied:
+                satisfied.add("environment_flags")
+        else:
+            satisfied.add("environment_flags")
+
+        if self._allowlisted(request.device):
+            satisfied.add("device_allowlist")
+        else:
+            self._deny("device_allowlist", f"Device {request.device.label} / {request.device.ip_address} is not in NCP_LAB_DEVICE_ALLOWLIST", reasons, denied)
+
+        contract = get_vendor_driver_contract(decision.family)
+        if decision.selected_transport in {TransportKind.unsupported, TransportKind.icmp_only}:
+            self._deny("runtime_decision", f"{decision.selected_transport.value} cannot run CLI config operations", reasons, denied)
+        elif request.operation != VendorOperation.read_backup and decision.family in {
+            DeviceFamily.unknown,
+            DeviceFamily.icmp,
+            DeviceFamily.generic_ssh,
+        }:
+            self._deny("runtime_decision", f"{decision.family.value} cannot config apply in Excel lab mode", reasons, denied)
+        elif request.operation != VendorOperation.read_backup and decision.family in {DeviceFamily.eltex, DeviceFamily.bulat}:
+            self._deny("runtime_decision", f"{decision.family.value} config apply remains blocked until future certification", reasons, denied)
+        else:
+            satisfied.add("runtime_decision")
+
+        if contract.apply_support_level in {ApplySupportLevel.lab_apply_candidate, ApplySupportLevel.lab_apply_certified} and (
+            request.allow_lab_candidate or contract.apply_support_level == ApplySupportLevel.lab_apply_certified
+        ):
+            satisfied.add("vendor_contract")
+        elif request.operation == VendorOperation.read_backup and contract.read_only_commands:
+            satisfied.add("vendor_contract")
+        else:
+            self._deny("vendor_contract", f"{decision.family.value} does not have a lab-eligible contract for {request.operation.value}", reasons, denied)
+
+        if request.credential_ref:
+            usable, credential_reasons = self.vault.check_usable(request.credential_ref)
+            if usable:
+                satisfied.add("credential_reference")
+            else:
+                self._deny("credential_reference", "; ".join(credential_reasons), reasons, denied)
+        else:
+            self._deny("credential_reference", "Credential reference is required", reasons, denied)
+
+        if request.operation == VendorOperation.read_backup or self.state.latest_backup_for(request.device.id):
+            satisfied.add("fresh_backup")
+        else:
+            self._deny("fresh_backup", "A sanitized Excel lab backup is required before config apply", reasons, denied)
+
+        if request.operation == VendorOperation.read_backup or self.state.latest_validation_for(request.device.id, request.operation.value):
+            satisfied.add("lab_validation")
+        else:
+            self._deny("lab_validation", "A lab certification record is required before config apply", reasons, denied)
+
+        internal_commands, command_errors = self._render_commands(decision.family, request.operation, request.command_parameters)
+        safe_plan = [LabApplyCommand(command=command.redacted() if command.secret else mask_secrets(command.command), secret=command.secret) for command in internal_commands]
+        computed_hash = command_hash(internal_commands) if internal_commands else None
+        if command_errors:
+            self._deny("command_safety", "; ".join(command_errors), reasons, denied)
+        else:
+            satisfied.add("command_safety")
+
+        dry_run = self.state.get_dry_run(request.simulation_hash or "") if request.simulation_hash else None
+        if computed_hash and request.simulation_hash == computed_hash and dry_run is not None:
+            satisfied.add("simulation_hash")
+        else:
+            self._deny("simulation_hash", "Simulation hash must match a stored dry-run command plan", reasons, denied)
+
+        if self.state.has_active_lock(request.device.id):
+            self._deny("lock_conflict", "Device already has an active Excel lab lock", reasons, denied)
+        else:
+            satisfied.add("lock_conflict")
+
+        ordered_denied = [gate for gate in FILE_MODE_REQUIRED_GATES if gate in denied]
+        ordered_satisfied = [gate for gate in FILE_MODE_REQUIRED_GATES if gate in satisfied and gate not in denied]
+        return (
+            ExcelLabSafetyDecision(
+                allowed=not ordered_denied and not reasons,
+                reasons=sorted(set(reasons)),
+                warnings=warnings,
+                satisfied_gates=ordered_satisfied,
+                denied_gates=ordered_denied,
+                safe_command_plan=safe_plan,
+                internal_commands=internal_commands,
+                command_hash=computed_hash,
+                selected_transport=decision.selected_transport.value,
+                driver_family=decision.family.value,
+            ),
+            decision,
+        )
+
+    def _render_commands(
+        self,
+        family: DeviceFamily,
+        operation: VendorOperation,
+        parameters: dict[str, Any],
+    ) -> tuple[list[RenderedCommand], list[str]]:
+        try:
+            return self.templates.render(family, operation, parameters), []
+        except Exception as exc:
+            return [], [str(exc)]
+
+    def _allowlisted(self, device: ExcelInventoryDevice) -> bool:
+        allowlist = {item.strip() for item in self.settings.lab_device_allowlist.split(",") if item.strip()}
+        identifiers = {device.id, device.label, device.hostname, device.ip_address}
+        return bool(allowlist & identifiers)
+
+    def _deny(self, gate: str, reason: str, reasons: list[str], denied: set[str]) -> None:
+        denied.add(gate)
+        reasons.append(reason)

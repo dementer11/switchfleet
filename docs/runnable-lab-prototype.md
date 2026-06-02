@@ -1,152 +1,142 @@
 # Runnable Lab Prototype
 
-This stage turns the existing backend into a runnable lab prototype for 3-4 real lab devices. It does not add a frontend, does not enable production apply, does not add a generic `/apply`, and does not add a destructive `/run`.
+The runnable lab prototype is now Excel-first. It is designed for operators who already have an inventory spreadsheet and want to test SwitchFleet on 3-4 controlled lab devices without PostgreSQL, Alembic, FastAPI, or DB imports.
 
-## Environment
+This mode does not enable production apply, does not add a generic `/apply`, and does not add a destructive `/run`.
 
-Set safe lab-only environment variables before using real lab execution:
+## Excel Inventory
 
-```powershell
-$env:NCP_SECRET_KEY = "replace-with-long-random-lab-secret"
-$env:NCP_ALLOW_REAL_DEVICE_APPLY = "true"
-$env:NCP_LAB_REAL_APPLY_ENABLED = "true"
-$env:NCP_PRODUCTION_REAL_APPLY_ENABLED = "false"
-$env:NCP_LAB_DEVICE_ALLOWLIST = "sw1-lab,192.168.88.11"
+The Excel file is the primary lab input. Required columns:
+
+- `Status`
+- `Device Label`
+- `Model`
+- `IP Address`
+- `Vendor`
+- `Device Category`
+- `Location`
+- `Contact`
+
+Rows with empty device data or explicit service rows are ignored. Unknown or ambiguous vendor/model rows fail closed through the existing driver runtime matrix.
+
+## State
+
+Excel lab mode stores local state under `.switchfleet_lab/` by default:
+
+```text
+.switchfleet_lab/
+  credentials.json
+  backups/
+  audit.jsonl
+  locks.json
+  dry_runs.json
+  lab_validations.json
+  executions/
 ```
 
-Defaults remain safe/off. Without these flags the safety kernel denies lab apply.
+Credential payloads are encrypted with `NCP_SECRET_KEY`. Plaintext secrets are not written to state, output, audit, or reports.
 
-## Start Backend And DB
-
-Run migrations before using the prototype:
+## Doctor
 
 ```powershell
-alembic upgrade head
+python scripts/excel_lab.py inventory.xlsx doctor
 ```
 
-For local API testing:
+Doctor verifies that the Excel file is readable, required columns are present, file state is available, lab env vars are visible, Netmiko/Paramiko availability can be detected, and database/Alembic setup is not required.
+
+## List And Runtime
 
 ```powershell
-uvicorn app.main:app --reload
+python scripts/excel_lab.py inventory.xlsx list
+python scripts/excel_lab.py inventory.xlsx check-runtime --device 10.13.4.67
 ```
 
-## Prototype CLI
-
-The helper script is:
-
-```powershell
-python scripts/lab_prototype.py <command>
-```
-
-It prints JSON and writes through the existing SQLAlchemy models/services. Operators do not need to write SQL.
-
-## Bootstrap
-
-```powershell
-python scripts/lab_prototype.py bootstrap-admin
-```
-
-The command prints the actor/role headers used by local prototype calls and the required lab env vars.
-
-## Import Devices
-
-```powershell
-python scripts/lab_prototype.py import-devices examples/lab/devices.example.yaml
-python scripts/lab_prototype.py list-devices
-```
-
-Devices are tagged with `lab=true` and `environment=lab`. The import does not grant apply permission automatically.
+Runtime decisions reuse `DriverCapabilityMatrix`, `VendorDriverContracts`, and `VendorCommandTemplateService`. Excel inventory is not certification. Unknown, ICMP, GenericSSH, Eltex, and Bulat remain blocked for config apply unless a future certified contract changes that.
 
 ## Credential Ref
 
 ```powershell
-python scripts/lab_prototype.py add-credential --name lab-admin --username admin --password-prompt
+$env:NCP_SECRET_KEY = "replace-with-long-random-lab-secret"
+python scripts/excel_lab.py inventory.xlsx add-credential --name lab-admin --username admin --password-prompt
 ```
 
-`NCP_SECRET_KEY` must be set. The password is read interactively, stored encrypted, and never printed.
-
-## Runtime Decision
-
-```powershell
-python scripts/lab_prototype.py check-runtime --device sw1-lab
-```
-
-The output includes family, selected transport, driver, warnings, `config_apply_allowed`, `real_apply_certified`, and lab apply support level. Unknown, ICMP, GenericSSH, Eltex, and Bulat explain why config apply is blocked.
+The password is read interactively or from `--password-env`; plaintext password arguments are intentionally unsupported.
 
 ## Backup
 
 ```powershell
-python scripts/lab_prototype.py backup --device sw1-lab --credential lab-admin
+$env:NCP_LAB_DEVICE_ALLOWLIST = "10.13.4.67"
+python scripts/excel_lab.py inventory.xlsx backup --device 10.13.4.67 --credential lab-admin
 ```
 
-Backup requires a lab-tagged allowlisted device and credential ref. It uses vendor read-only commands, sanitizes output, stores a `ConfigSnapshot`, and writes audit. ICMP and Unknown are denied.
+Backup is read-only. It uses the existing vendor contract read-only commands, decrypts the credential only after allowlist/runtime checks, sanitizes output, stores a local backup file, and writes an audit event. Unknown and ICMP devices are denied.
 
 ## Dry Run
 
 ```powershell
-python scripts/lab_prototype.py dry-run --device sw1-lab --operation vlan_create --vlan-id 123 --name TEST_VLAN
-python scripts/lab_prototype.py dry-run --device sw1-lab --operation password_change --username admin --new-password-prompt --level 15
+python scripts/excel_lab.py inventory.xlsx dry-run --device 10.13.4.67 --operation vlan_create --vlan-id 123 --name TEST_VLAN
 ```
 
-Dry-run does not open SSH. It renders vendor templates, redacts secret commands, validates inputs, and prints the command hash.
+Dry-run does not open SSH and does not decrypt credentials. It renders existing vendor templates, redacts secret commands, stores a dry-run record, and returns a command hash.
+
+## Certification
+
+```powershell
+python scripts/excel_lab.py inventory.xlsx certify --device 10.13.4.67 --capability vlan_create --credential lab-admin
+python scripts/excel_lab.py inventory.xlsx certification-report
+```
+
+Certification records lab-only evidence in local file state. It is not production certification and does not run commands by itself.
 
 ## Evaluate
 
 ```powershell
-python scripts/lab_prototype.py evaluate-apply `
-  --device sw1-lab `
-  --credential lab-admin `
-  --operation vlan_create `
-  --vlan-id 123 `
-  --name TEST_VLAN `
-  --backup-snapshot <snapshot-id> `
-  --lab-validation <validation-id> `
-  --approval approved `
-  --simulation-hash <hash> `
-  --lock
+python scripts/excel_lab.py inventory.xlsx evaluate-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
 ```
 
-For prototype-only convenience:
-
-```powershell
-python scripts/lab_prototype.py evaluate-apply --device sw1-lab --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --prototype-auto-gates
-```
-
-`--prototype-auto-gates` creates real lab validation and lock records and uses the latest sanitized backup snapshot. It does not bypass the safety kernel.
+Evaluate does not open SSH and does not decrypt credentials. It checks allowlist, credential reference, sanitized backup, lab certification record, dry-run hash, runtime decision, vendor contract, and lock conflicts.
 
 ## Execute
 
-Fake execution remains the default:
+Fake/default-safe execution remains available for local verification:
 
 ```powershell
-python scripts/lab_prototype.py execute-apply --device sw1-lab --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --prototype-auto-gates
+python scripts/excel_lab.py inventory.xlsx execute-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
 ```
 
-Real lab execution requires an explicit flag:
+Real lab execution requires explicit lab flags and `--real-lab`:
 
 ```powershell
-python scripts/lab_prototype.py execute-apply --device sw1-lab --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --prototype-auto-gates --simulation-hash <hash-from-dry-run> --real-lab
+$env:NCP_ALLOW_REAL_DEVICE_APPLY = "true"
+$env:NCP_LAB_REAL_APPLY_ENABLED = "true"
+$env:NCP_PRODUCTION_REAL_APPLY_ENABLED = "false"
+python scripts/excel_lab.py inventory.xlsx execute-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run> --real-lab
 ```
 
-The command decrypts the credential and creates Netmiko/Paramiko transport only after the safety kernel allows the request.
-Real lab execution requires an explicit simulation hash copied from a prior dry-run so a fresh render cannot silently replace the reviewed plan.
+Credential decrypt and transport creation happen only after the file-mode safety decision allows the request.
 
 ## Audit
 
 ```powershell
-python scripts/lab_prototype.py audit-tail --limit 20
+python scripts/excel_lab.py inventory.xlsx audit-tail --limit 20
 ```
 
-Audit payloads are sanitized and do not include plaintext secrets.
+Audit payloads are JSONL and sanitized.
 
-## Troubleshooting
+## Enterprise DB Mode
 
-- `NCP_SECRET_KEY is required`: set a lab-only secret key.
-- `Device is not in NCP_LAB_DEVICE_ALLOWLIST`: add the device id, hostname, or management IP.
-- `Unknown devices cannot run lab backup`: fix inventory vendor/model/platform.
-- `Simulation/dry-run hash must match`: rerun dry-run and use the latest hash.
-- `A sanitized config snapshot is required`: run `lab backup` first.
-- `An approved matching lab validation is required`: create lab validation or use prototype auto-gates in lab only.
-- `A reserved per-device lock is required`: pass `--lock` or use prototype auto-gates.
-- `Vendor error pattern detected`: inspect the redacted output and vendor CLI syntax.
-- Paramiko direct SSH uses bounded prompt reads for the runnable prototype. Firmware prompt and paging differences can still require vendor-specific tuning before any broader lab rollout.
+`scripts/lab_prototype.py` remains available as DB-backed enterprise prototype mode. It writes through SQLAlchemy models and is useful only when you intentionally run the backend database path.
+
+Excel lab users do not need to run PostgreSQL, Alembic, or import inventory into a DB.
+
+## Known Limitations
+
+Controlled lab testing is still required for:
+
+- prompt handling;
+- paging behavior;
+- vendor-specific save/commit behavior;
+- Netmiko device type accuracy per firmware;
+- Paramiko timing;
+- command output/error-pattern coverage;
+- rollback behavior on real devices.

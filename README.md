@@ -22,6 +22,7 @@ Supported and modeled families:
 
 - Intent-based VLAN dry-run workflow through FastAPI.
 - Controlled password-change workflow through FastAPI with encrypted temporary secret storage and canary rollout.
+- Excel-first lab prototype CLI for operators who have an inventory spreadsheet and do not want PostgreSQL/Alembic for lab testing.
 - CLI operations for password, ACL, VLAN, port changes, and config backup.
 - Hybrid transport strategy: Scrapli/Netmiko in the enterprise layer; Netmiko/Paramiko in the CLI layer.
 - Encrypted credentials with Fernet.
@@ -47,6 +48,57 @@ Supported and modeled families:
 Real device apply is disabled by default in the enterprise executor. The current safe executor uses `DummyTransport`; dry-run entries that request Scrapli or Netmiko are rejected while `NCP_ALLOW_REAL_DEVICE_APPLY=false`. The flag is a safety gate for future lab execution, not a production-ready real-device apply switch in this release.
 
 Lab validation records are now available for future real-device enablement. They do not enable real apply by themselves: even if `NCP_ALLOW_REAL_DEVICE_APPLY=true` is set in a lab, a matching approved validation for vendor, model pattern, driver, and capability is required before the future real-transport gate can pass.
+
+## Excel-First Lab Quickstart
+
+The primary runnable lab prototype uses your Excel inventory directly. It does not require PostgreSQL, Alembic, FastAPI, or importing inventory into a database.
+
+Expected Excel columns:
+
+- `Status`
+- `Device Label`
+- `Model`
+- `IP Address`
+- `Vendor`
+- `Device Category`
+- `Location`
+- `Contact`
+
+Start with:
+
+```powershell
+python scripts/excel_lab.py inventory.xlsx doctor
+python scripts/excel_lab.py inventory.xlsx list
+python scripts/excel_lab.py inventory.xlsx check-runtime --device 10.13.4.67
+```
+
+Create a local encrypted credential ref:
+
+```powershell
+$env:NCP_SECRET_KEY = "replace-with-long-random-lab-secret"
+python scripts/excel_lab.py inventory.xlsx add-credential --name lab-admin --username admin --password-prompt
+```
+
+Run the lab flow:
+
+```powershell
+$env:NCP_LAB_DEVICE_ALLOWLIST = "10.13.4.67"
+python scripts/excel_lab.py inventory.xlsx backup --device 10.13.4.67 --credential lab-admin
+python scripts/excel_lab.py inventory.xlsx dry-run --device 10.13.4.67 --operation vlan_create --vlan-id 123 --name TEST_VLAN
+python scripts/excel_lab.py inventory.xlsx certify --device 10.13.4.67 --capability vlan_create --credential lab-admin
+python scripts/excel_lab.py inventory.xlsx evaluate-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
+```
+
+Real lab execution remains explicit and lab-only:
+
+```powershell
+$env:NCP_ALLOW_REAL_DEVICE_APPLY = "true"
+$env:NCP_LAB_REAL_APPLY_ENABLED = "true"
+$env:NCP_PRODUCTION_REAL_APPLY_ENABLED = "false"
+python scripts/excel_lab.py inventory.xlsx execute-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run> --real-lab
+```
+
+Excel lab state is stored under `.switchfleet_lab/` by default. Credential payloads are encrypted, backups are sanitized, audit events are JSONL, and production apply remains disabled. The DB-backed FastAPI platform is still available as enterprise mode below.
 
 ## Inventory Onboarding
 
@@ -232,7 +284,17 @@ By default `/execute` uses fake lab transport and records intended redacted comm
 
 ## Runnable Lab Prototype
 
-The runnable lab prototype adds a local helper for testing 3-4 lab devices without writing SQL:
+The primary runnable lab prototype is Excel-first and file-based:
+
+```powershell
+python scripts/excel_lab.py inventory.xlsx doctor
+python scripts/excel_lab.py inventory.xlsx list
+python scripts/excel_lab.py inventory.xlsx add-credential --name lab-admin --username admin --password-prompt
+python scripts/excel_lab.py inventory.xlsx backup --device 10.13.4.67 --credential lab-admin
+python scripts/excel_lab.py inventory.xlsx dry-run --device 10.13.4.67 --operation vlan_create --vlan-id 123 --name TEST_VLAN
+```
+
+The older `scripts/lab_prototype.py` helper is DB-backed enterprise prototype mode. Use it only when you intentionally want SQLAlchemy/PostgreSQL-backed prototype records:
 
 ```powershell
 python scripts/lab_prototype.py bootstrap-admin
@@ -245,7 +307,7 @@ python scripts/lab_prototype.py evaluate-apply --device sw1-lab --credential lab
 python scripts/lab_prototype.py execute-apply --device sw1-lab --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --prototype-auto-gates --simulation-hash <hash-from-dry-run> --real-lab
 ```
 
-Real lab execution remains behind the Apply Safety Kernel and requires lab env flags, allowlist, credential ref, fresh backup, lab validation, approval metadata, matching command hash, rollback preview, and lock. See [Runnable Lab Prototype](docs/runnable-lab-prototype.md).
+Real lab execution remains behind lab safety gates and requires lab env flags, allowlist, credential ref, fresh backup, lab certification metadata, matching command hash, and explicit `--real-lab`. See [Runnable Lab Prototype](docs/runnable-lab-prototype.md).
 
 ## Install For Development
 

@@ -11,18 +11,24 @@ HEADERS = {"X-Actor": "netadmin", "X-Roles": "network_admin"}
 
 
 def _device() -> str:
-    device, _created = DeviceInventoryRepository(SessionLocal()).upsert_device(
-        {
-            "management_ip": "10.64.0.1",
-            "hostname": "api-sw",
-            "vendor": "Cisco",
-            "model": "Cat2960-48",
-            "site": "HQ",
-            "tags": ["api"],
-            "driver_name": "CiscoIOSDriver",
-        }
-    )
-    return str(device.id)
+    session = SessionLocal()
+    try:
+        device, _created = DeviceInventoryRepository(session).upsert_device(
+            {
+                "management_ip": "10.64.0.1",
+                "hostname": "api-sw",
+                "vendor": "Cisco",
+                "model": "Cat2960-48",
+                "site": "HQ",
+                "tags": ["api"],
+                "driver_name": "CiscoIOSDriver",
+            }
+        )
+        device_id = str(device.id)
+        session.commit()
+        return device_id
+    finally:
+        session.close()
 
 
 def test_config_backup_api_job_run_report_snapshot_diff_drift_and_restore_plan() -> None:
