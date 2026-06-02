@@ -637,9 +637,15 @@ Lab validation endpoints:
 - `GET /api/v1/lab-validations/{validation_id}/checklist`
 - `PATCH /api/v1/lab-validations/{validation_id}/checklist/{item_id}`
 
+## Runnable Lab Prototype
+
+The runnable lab prototype provides `scripts/lab_prototype.py` for local operator testing against 3-4 lab devices. It imports lab devices, creates encrypted credential refs, checks runtime decisions, collects sanitized read-only backups, renders dry-run command hashes, evaluates safety gates, and can execute lab-only Netmiko/Paramiko command plans after the Apply Safety Kernel allows the request.
+
+This is not production apply. There is no generic `/apply`, no destructive `/run`, and production apply remains denied.
+
 ## How To Enable Lab-Only Apply Safely
 
-The current release does not connect the enterprise executor to real Scrapli or Netmiko apply. `NCP_ALLOW_REAL_DEVICE_APPLY=true` should be treated as a lab-readiness gate for future real transport execution, not as production enablement.
+`NCP_ALLOW_REAL_DEVICE_APPLY=true` should be treated as a lab-only gate, not as production enablement. Real lab execution also requires `NCP_LAB_REAL_APPLY_ENABLED=true`, `NCP_PRODUCTION_REAL_APPLY_ENABLED=false`, a lab-tagged allowlisted device, fresh backup, lab validation, approval metadata, matching command hash, rollback preview, device lock, credential ref, and RBAC permissions.
 
 For a closed lab readiness exercise:
 
@@ -647,8 +653,10 @@ For a closed lab readiness exercise:
 2. Confirm backup and verification commands manually for each firmware family.
 3. Set `NCP_SECRET_KEY` to a lab-only random secret.
 4. Set `NCP_ALLOW_REAL_DEVICE_APPLY=true`.
-5. Keep batch size at 1 until each driver template has a golden transcript.
-6. Store all command transcripts with secrets removed.
+5. Set `NCP_LAB_REAL_APPLY_ENABLED=true`.
+6. Keep `NCP_PRODUCTION_REAL_APPLY_ENABLED=false`.
+7. Keep batch size at 1 until each driver template has a golden transcript.
+8. Store all command transcripts with secrets removed.
 
 Do not enable this setting in production until approval, rollback, and device-family golden tests are complete.
 
