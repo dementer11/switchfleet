@@ -36,6 +36,7 @@ Supported and modeled families:
 - Simulation-only change execution orchestration for password rollout, VLAN workflow, and config-backup dependency timelines.
 - Read-only operator console backend summaries for health, safety posture, pending approvals, activity, and risk.
 - Read-only observability, audit export, compliance snapshots, operational reports, device readiness reports, and metrics summaries.
+- Vendor-aware transport strategy and driver runtime decisions for Netmiko, Paramiko, custom CLI, ICMP-only, and unsupported profiles.
 - Encrypted backup storage and masked diffs.
 - Device locks with expiration.
 - Structured audit events with secret masking before database write.
@@ -188,6 +189,23 @@ Endpoints are available under `/api/v1/observability`:
 JSON reports require `read_observability`. CSV/full audit exports require `export_audit_reports`. Export limits default to 100 records and are capped at 5000 records.
 
 This layer never runs workflow execution, simulation, config backup collection, lab validation, credential validation, transport open, or device commands. Metadata is recursively sanitized before JSON and CSV output, and reports never return raw configs, passwords, tokens, private keys, command output, or credential secret material.
+
+## Transport Strategy And Driver Runtime
+
+The Driver Runtime layer is a read-only decision API for selecting the safest transport strategy by vendor/model/platform.
+
+Endpoints are available under `/api/v1/driver-runtime`:
+
+- `GET /profiles`
+- `GET /profiles/{family}`
+- `GET /decision`
+- `GET /devices/{device_id}/decision`
+- `GET /summary`
+- `GET /safety`
+
+Netmiko is preferred for profiled Cisco, Huawei, HPE/Comware, ProCurve/ArubaOS-Switch, and Dell families. Paramiko is used where direct SSH/session control is the safer strategy. `custom_cli` is used for nonstandard Eltex/Bulat style CLIs. ICMP is health-only. Unknown devices are explicitly unsupported.
+
+This layer does not open sessions, does not run commands, does not expose `/apply` or `/run`, and keeps `config_apply_allowed=false` and `real_apply_certified=false` for every runtime decision.
 
 ## Install For Development
 
@@ -416,6 +434,7 @@ Windows portable:
 - Change execution orchestration is simulation-only; it never opens transports, never sends commands, and exposes no `/apply` or destructive `/run`.
 - Operator console endpoints are GET-only; they never execute workflows, collect backups, validate labs, simulate changes, or return secrets/raw configs.
 - Observability endpoints are GET-only read/export routes; they never execute workflows, collect backups, validate labs, simulate changes, open transports, or return secrets/raw configs.
+- Driver runtime endpoints are GET-only decision routes; they never open sessions, execute commands, expose `/apply` or `/run`, or mark any device real-apply certified.
 
 ## Documentation
 
@@ -426,6 +445,7 @@ Windows portable:
 - [Change execution orchestrator](docs/change-execution-orchestrator.md)
 - [Operator console backend](docs/operator-console-backend.md)
 - [Observability audit reporting](docs/observability-audit-reporting.md)
+- [Transport strategy and driver runtime](docs/transport-strategy-driver-runtime.md)
 - [Driver validation checklist](docs/lab-validation.md)
 - [Lab validation framework](docs/lab-validation-framework.md)
 - [Password change rollout](docs/password-change-rollout.md)
