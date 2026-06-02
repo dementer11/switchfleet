@@ -8,11 +8,13 @@ from app.api.v1 import (
     change_executions,
     config_backups,
     credentials,
+    credential_vault,
     devices,
     driver_runtime,
     health,
     inventory,
     jobs,
+    lab_apply,
     lab_validations,
     observability,
     operator_console,
@@ -24,8 +26,10 @@ api_router.include_router(health.router, tags=["system"])
 api_router.include_router(devices.router, prefix="/devices", tags=["devices"])
 api_router.include_router(driver_runtime.router, prefix="/driver-runtime", tags=["driver-runtime"])
 api_router.include_router(credentials.router, prefix="/credentials", tags=["credentials"])
+api_router.include_router(credential_vault.router, prefix="/credential-vault", tags=["credential-vault"])
 api_router.include_router(backups.router, tags=["backups"])
 api_router.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
+api_router.include_router(lab_apply.router, prefix="/lab-apply", tags=["lab-apply"])
 api_router.include_router(lab_validations.router, prefix="/lab-validations", tags=["lab-validations"])
 api_router.include_router(inventory.router, prefix="/inventory", tags=["inventory"])
 api_router.include_router(config_backups.router, prefix="/config-backups", tags=["config-backups"])

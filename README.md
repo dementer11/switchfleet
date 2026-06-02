@@ -37,6 +37,7 @@ Supported and modeled families:
 - Read-only operator console backend summaries for health, safety posture, pending approvals, activity, and risk.
 - Read-only observability, audit export, compliance snapshots, operational reports, device readiness reports, and metrics summaries.
 - Vendor-aware transport strategy and driver runtime decisions for Netmiko, Paramiko, custom CLI, ICMP-only, and unsupported profiles.
+- Driver and lab-only real-apply readiness contracts, credential vault, Apply Safety Kernel, and fake lab execution path.
 - Encrypted backup storage and masked diffs.
 - Device locks with expiration.
 - Structured audit events with secret masking before database write.
@@ -208,6 +209,26 @@ Netmiko is preferred for profiled Cisco, Huawei, HPE/Comware, ProCurve/ArubaOS-S
 This layer does not open sessions, does not run commands, does not expose `/apply` or `/run`, and keeps `config_apply_allowed=false` and `real_apply_certified=false` for every runtime decision.
 
 The legacy CLI runtime now uses a compatibility bridge to this matrix. It can still render plans and dry-run previews, and it can run read-only backups for supported profiles, but `netops apply` is blocked by default before credentials are requested or SSH transports are created. `NCP_LEGACY_CLI_REAL_APPLY=true` and `NCP_ALLOW_REAL_DEVICE_APPLY=true` do not enable legacy real apply in this stage.
+
+## Driver & Lab Apply Readiness
+
+Driver real-apply readiness is now modeled behind explicit contracts, command templates, credential vault metadata, and the Apply Safety Kernel. This is lab-only readiness, not production apply.
+
+New endpoints:
+
+- `POST /api/v1/credential-vault/secrets`
+- `GET /api/v1/credential-vault/secrets`
+- `GET /api/v1/credential-vault/secrets/{secret_id}`
+- `PUT /api/v1/credential-vault/secrets/{secret_id}`
+- `POST /api/v1/credential-vault/secrets/{secret_id}/rotate`
+- `DELETE /api/v1/credential-vault/secrets/{secret_id}`
+- `GET /api/v1/credential-vault/secrets/{secret_id}/usable`
+- `POST /api/v1/lab-apply/evaluate`
+- `POST /api/v1/lab-apply/execute`
+
+The lab apply API is fully gated. `/evaluate` never opens transport or decrypts credentials. `/execute` denies before credential decrypt and before transport creation unless every gate passes: lab mode, env flags, lab-tagged allowlisted device, vendor contract, runtime decision, credential reference, fresh backup, approved lab validation, approval metadata, matching dry-run hash, safe vendor template, rollback preview, device lock, and RBAC.
+
+By default `/execute` uses fake lab transport and records intended redacted commands. Production apply remains disabled, `production_apply` is denied, and no generic `/apply` or destructive `/run` endpoint is added.
 
 ## Install For Development
 
