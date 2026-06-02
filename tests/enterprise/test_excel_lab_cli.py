@@ -51,3 +51,34 @@ def test_excel_lab_cli_list_runs_from_excel(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "sw1-lab" in result.stdout
     assert "cisco_ios" in result.stdout
+
+
+def test_excel_lab_cli_import_does_not_load_db_session() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; import scripts.excel_lab; print('app.db.session' in sys.modules)",
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "False"
+
+
+def test_switchfleet_lab_state_is_gitignored() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        ["git", "check-ignore", ".switchfleet_lab/credentials.json"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr

@@ -91,6 +91,13 @@ class ExcelLabSafetyDecision:
 
 
 class ExcelLabSafetyService:
+    """File-mode prototype safety checks for Excel lab runtime.
+
+    This service is not a replacement for the DB-backed Apply Safety Kernel.
+    It enforces the Excel/file-state gates before credential decrypt or
+    transport creation in the operator prototype path.
+    """
+
     def __init__(
         self,
         state: FileLabState,
