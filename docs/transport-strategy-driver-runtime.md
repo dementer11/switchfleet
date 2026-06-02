@@ -91,3 +91,48 @@ The intended sequence remains:
 5. production apply readiness.
 
 This stage implements step 1 only.
+
+## Legacy CLI Safety Alignment
+
+The legacy CLI under `src/netops_orchestrator` remains file-driven and does not depend on the enterprise database, but its runtime decision boundary now aligns with the capability matrix.
+
+The compatibility bridge:
+
+- resolves legacy `Device` and `CommandPlan` objects through `DriverCapabilityMatrix`;
+- keeps Huawei Unknown Product and Unknown SNMP Product fail-closed as `unsupported`;
+- keeps ICMP devices health-only with no CLI transport;
+- keeps Generic SSH read-only/dry-run only;
+- keeps Eltex and Bulat on `custom_cli`/Paramiko strategy while blocking config apply;
+- exposes safe explanations for runtime decisions without secrets or network calls.
+
+Legacy driver registry alignment:
+
+- known Cisco, Huawei VRP, HPE Comware, HPE ProCurve/ArubaOS-Switch, Dell, Eltex, and Bulat devices map to the same runtime family as the capability matrix;
+- unknown, ICMP-only, and Generic SSH devices return `UnsupportedDriver` for CLI config planning;
+- legacy QTECH planning is preserved as a compatibility path, but config execution is still blocked at the transport boundary because it is not a certified matrix profile.
+
+Legacy transport factory alignment:
+
+- `auto` follows the runtime decision;
+- Netmiko is used only when the runtime decision selected Netmiko and a legacy `netmiko_device_type` exists;
+- Paramiko may be used for explicit Paramiko decisions or read-only fallback paths;
+- `custom_cli` profiles without a safe legacy read-only fallback fail closed;
+- `icmp_only` and `unsupported` never create SSH transports;
+- preference flags such as `--transport netmiko` or `--transport paramiko` cannot bypass unsupported, ICMP, Generic SSH, Eltex, Bulat, or unknown safety.
+
+Legacy CLI apply remains disabled:
+
+- `netops apply` without `--dry-run` exits with a controlled safety error before credentials are requested and before any transport is created;
+- `netops apply --dry-run` still renders plans;
+- `plan-password`, `plan-acl`, `plan-vlan`, `plan-port`, and `plan-backup` still render command plans;
+- pre/post backups inside `apply` do not run because the apply path is blocked first;
+- setting `NCP_LEGACY_CLI_REAL_APPLY=true` or `NCP_ALLOW_REAL_DEVICE_APPLY=true` does not enable legacy real apply in this stage.
+
+Legacy backup remains read-only:
+
+- backup plans must pass the runtime decision before a transport is created;
+- backup commands must remain read-only and must not include config/save phases;
+- unsupported and ICMP-only devices skip or fail safely without creating SSH transports;
+- no Netmiko `ConnectHandler`, Paramiko `SSHClient`, or Scrapli session is opened by tests.
+
+Real apply is still postponed until the Apply Safety Kernel and lab-only real apply stages.

@@ -207,6 +207,8 @@ Netmiko is preferred for profiled Cisco, Huawei, HPE/Comware, ProCurve/ArubaOS-S
 
 This layer does not open sessions, does not run commands, does not expose `/apply` or `/run`, and keeps `config_apply_allowed=false` and `real_apply_certified=false` for every runtime decision.
 
+The legacy CLI runtime now uses a compatibility bridge to this matrix. It can still render plans and dry-run previews, and it can run read-only backups for supported profiles, but `netops apply` is blocked by default before credentials are requested or SSH transports are created. `NCP_LEGACY_CLI_REAL_APPLY=true` and `NCP_ALLOW_REAL_DEVICE_APPLY=true` do not enable legacy real apply in this stage.
+
 ## Install For Development
 
 ```powershell
@@ -324,7 +326,7 @@ Persisted enterprise objects:
 
 Alembic migration `20260530_0001` creates the enterprise tables. Migration `20260530_0002` adds password rollout batches, rollout batch tasks, and encrypted password-change secrets. Migration `20260530_0003` adds lab validation records, sanitized transcripts, and checklists. Migration `20260530_0004` adds inventory onboarding metadata, import batches, and import rows. Migration `20260531_0005` adds config backup jobs, schedules, snapshots, diffs, and restore plan previews. Migration `20260531_0006` adds VLAN workflow validation, planning, approvals, and audit tables. Migration `20260531_0007` adds simulation-only change execution orchestration tables. All migrations support downgrade. SQLite is supported for unit and integration tests through portable UUID, JSON, and INET column mappings.
 
-The CLI workflow under `src/netops_orchestrator` remains separate. It can render plans and execute CLI operations directly from inventory files; the Enterprise API workflow stores operational state in the database and keeps destructive apply guarded by approval, backup, verification, locks, and audit.
+The CLI workflow under `src/netops_orchestrator` remains separate. It can render plans, produce dry-run previews, and run read-only backups from inventory files. Destructive legacy `netops apply` is blocked by the unified runtime safety bridge before any SSH transport is created. The Enterprise API workflow stores operational state in the database and keeps destructive apply guarded by approval, backup, verification, locks, and audit.
 
 ## Credentials
 
@@ -368,21 +370,19 @@ $env:SWITCH_PASS = "current-secret"
 netops backup inventory.csv --login netadmin --password-env SWITCH_PASS --output-dir ".\backups" --limit 1
 ```
 
-Apply with pre/post backup and audit:
+Preview a legacy apply plan with dry-run:
 
 ```powershell
 netops apply inventory.csv `
-  --login netadmin `
-  --password-env SWITCH_PASS `
   --operation vlan `
   --vlan-id 220 `
   --name USERS `
   --port GigabitEthernet0/0/1 `
-  --pre-backup `
-  --post-backup `
-  --audit-log ".\audit\run.jsonl" `
+  --dry-run `
   --limit 1
 ```
+
+Running `netops apply` without `--dry-run` exits with a controlled safety error. Real CLI apply remains postponed until the Apply Safety Kernel and lab-only real apply stages.
 
 ## Offline And Portable Release Assets
 
