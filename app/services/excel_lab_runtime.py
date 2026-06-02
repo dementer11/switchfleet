@@ -175,6 +175,8 @@ class ExcelLabBackupRunner:
 
 
 class ExcelLabApplyExecutor:
+    """Excel/file-mode wrapper around safety decisions and the shared runner."""
+
     def __init__(
         self,
         state: FileLabState,

@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+"""Excel-first file-based lab prototype CLI.
+
+This is the primary operator path for running SwitchFleet from an Excel
+inventory without PostgreSQL, Alembic, FastAPI, or SQLAlchemy setup.
+Enterprise DB/API mode remains available through the application package and
+the DB-backed ``scripts/lab_prototype.py`` helper.
+"""
+
 import argparse
 import getpass
 import importlib.util

@@ -6,6 +6,7 @@ __pycache__/
 .ruff_cache/
 .venv/
 venv/
+.switchfleet_lab/
 build/
 dist/
 *.egg-info/

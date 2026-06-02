@@ -311,6 +311,16 @@ Real lab execution remains behind lab safety gates and requires lab env flags, a
 
 ## Install For Development
 
+For the Excel-first lab prototype only:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e .
+```
+
+For the optional enterprise backend and test suite:
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1

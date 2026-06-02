@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""DB-backed enterprise prototype helper.
+
+This script intentionally uses the SQLAlchemy/FastAPI-style enterprise
+services. Operators with an Excel inventory should use ``scripts/excel_lab.py``
+for the primary file-based lab prototype flow.
+"""
+
 import argparse
 import getpass
 import json
