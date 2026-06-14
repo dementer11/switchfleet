@@ -21,7 +21,7 @@ from app.api.v1 import (
     vlan_workflows,
 )
 
-api_router = APIRouter(prefix="/api/v1")
+api_router = APIRouter()
 api_router.include_router(health.router, tags=["system"])
 api_router.include_router(devices.router, prefix="/devices", tags=["devices"])
 api_router.include_router(driver_runtime.router, prefix="/driver-runtime", tags=["driver-runtime"])

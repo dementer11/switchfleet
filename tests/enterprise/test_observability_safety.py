@@ -13,7 +13,7 @@ VIEWER_HEADERS = {"X-Actor": "viewer", "X-Roles": "viewer"}
 
 def test_observability_has_no_apply_or_destructive_run_and_real_apply_default_off() -> None:
     client = TestClient(app)
-    routes = {route.path for route in app.routes if "/api/v1/observability" in route.path}
+    routes = {route for route in app.openapi()["paths"] if "/api/v1/observability" in route}
 
     assert Settings(environment="test").allow_real_device_apply is False
     assert all("/apply" not in route for route in routes)
