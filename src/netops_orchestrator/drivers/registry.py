@@ -21,11 +21,17 @@ def driver_for(device: Device) -> CliDriver:
     vendor = device.vendor.casefold()
     model = device.model.casefold()
     decision = runtime_decision_for_device(device)
-    if decision.family in {DeviceFamily.unknown, DeviceFamily.icmp, DeviceFamily.generic_ssh}:
+    if decision.family == DeviceFamily.qtech:
+        return QtechQswDriver(device)
+    if decision.family in {
+        DeviceFamily.unknown,
+        DeviceFamily.icmp,
+        DeviceFamily.generic_ssh,
+        DeviceFamily.limited_web,
+        DeviceFamily.non_switch,
+    }:
         if "qtech" in vendor or "qsw" in model:
             return QtechQswDriver(device)
-        if "d-link" in vendor or "des" in model:
-            return DlinkDesDriver(device)
         return UnsupportedDriver(device)
     if "securitycode" in vendor or "continent" in model:
         return UnsupportedDriver(device)

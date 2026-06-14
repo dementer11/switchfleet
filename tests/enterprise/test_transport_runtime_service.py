@@ -27,12 +27,12 @@ def test_driver_runtime_service_decisions_are_deterministic_and_safe() -> None:
 def test_driver_runtime_summary_counts_and_zero_real_apply_certification() -> None:
     summary = DriverRuntimeService().build_runtime_summary()
 
-    assert summary.total_profiles >= 10
+    assert summary.total_profiles >= 14
     assert summary.netmiko_profiles >= 6
     assert summary.paramiko_profiles >= 1
-    assert summary.custom_cli_profiles >= 2
+    assert summary.custom_cli_profiles >= 3
     assert summary.icmp_only_profiles == 1
-    assert summary.unsupported_profiles == 1
+    assert summary.unsupported_profiles >= 3
     assert summary.config_apply_supported_count >= 1
     assert summary.real_apply_certified_count == 0
     assert summary.config_apply_allowed_globally is False

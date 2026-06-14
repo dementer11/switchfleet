@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     production_real_apply_enabled: bool = False
     lab_device_allowlist: str = ""
     backup_before_apply: bool = True
+    lab_backup_max_age_hours: int = 24
 
     @model_validator(mode="after")
     def validate_production_secret_key(self) -> "Settings":

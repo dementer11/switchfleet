@@ -22,13 +22,35 @@ def test_file_credential_vault_encrypts_and_never_returns_plaintext(tmp_path: Pa
     assert vault.decrypt_for_execution_after_safety("lab-admin") == "PlainSecret"
 
 
-def test_file_credential_vault_requires_secret_key(tmp_path: Path, monkeypatch) -> None:
+def test_file_credential_vault_metadata_checks_do_not_require_secret_key(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("NCP_SECRET_KEY", "excel-lab-secret-key")
+    get_settings.cache_clear()
+    state = FileLabState(tmp_path / ".switchfleet_lab")
+    FileCredentialVault(state).create_or_update(name="lab-admin", username="admin", secret="PlainSecret")
+
     monkeypatch.delenv("NCP_SECRET_KEY", raising=False)
     get_settings.cache_clear()
+    vault = FileCredentialVault(state)
 
+    usable, reasons = vault.check_usable("lab-admin")
+    assert usable is True
+    assert reasons == []
     try:
-        FileCredentialVault(FileLabState(tmp_path / ".switchfleet_lab"))
+        vault.decrypt_for_execution_after_safety("lab-admin")
     except FileCredentialVaultError as exc:
         assert "NCP_SECRET_KEY" in str(exc)
     else:
-        raise AssertionError("File credential vault accepted missing NCP_SECRET_KEY")
+        raise AssertionError("File credential vault decrypted without NCP_SECRET_KEY")
+
+
+def test_file_credential_vault_create_requires_secret_key(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("NCP_SECRET_KEY", raising=False)
+    get_settings.cache_clear()
+    vault = FileCredentialVault(FileLabState(tmp_path / ".switchfleet_lab"))
+
+    try:
+        vault.create_or_update(name="lab-admin", username="admin", secret="PlainSecret")
+    except FileCredentialVaultError as exc:
+        assert "NCP_SECRET_KEY" in str(exc)
+    else:
+        raise AssertionError("File credential vault stored a secret without NCP_SECRET_KEY")

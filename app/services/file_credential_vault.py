@@ -35,13 +35,19 @@ class FileCredentialMetadata:
 class FileCredentialVault:
     def __init__(self, state: FileLabState, crypto: SecretCrypto | None = None):
         self.state = state
+        self.crypto = crypto
+
+    def _crypto(self) -> SecretCrypto:
+        if self.crypto is not None:
+            return self.crypto
         try:
-            self.crypto = crypto or SecretCrypto()
+            self.crypto = SecretCrypto()
         except SecretHandlingError as exc:
             raise FileCredentialVaultError(
                 "NCP_SECRET_KEY is required for Excel lab credential storage. "
                 "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
             ) from exc
+        return self.crypto
 
     def create_or_update(self, *, name: str, username: str, secret: str, purpose: str = "lab_apply") -> FileCredentialMetadata:
         if not secret:
@@ -54,7 +60,7 @@ class FileCredentialVault:
             "username": username,
             "purpose": purpose,
             "status": "active",
-            "encrypted_payload": self.crypto.encrypt_payload(secret),
+            "encrypted_payload": self._crypto().encrypt_payload(secret),
         }
         credentials.append(record)
         self.state.write_credentials(sorted(credentials, key=lambda item: item.get("name", "")))
@@ -95,7 +101,7 @@ class FileCredentialVault:
         encrypted = str(record.get("encrypted_payload") or "")
         if not encrypted:
             raise FileCredentialVaultError("Credential has no encrypted payload")
-        return self.crypto.decrypt_payload(encrypted)
+        return self._crypto().decrypt_payload(encrypted)
 
     def _get_record(self, ref: str) -> dict[str, Any]:
         for record in self.state.read_credentials():

@@ -14,6 +14,7 @@ import importlib.util
 import json
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -29,11 +30,11 @@ from app.services.excel_lab_runtime import ExcelLabApplyExecutor, ExcelLabBackup
 from app.services.excel_lab_safety import ExcelLabSafetyRequest, ExcelLabSafetyService
 from app.services.file_credential_vault import FileCredentialVault
 from app.services.file_lab_state import FileLabState
-from app.services.vendor_command_templates import VendorCommandTemplateService, command_hash
+from app.services.vendor_command_templates import VendorCommandTemplateService, command_hash, private_command_hash
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="excel-lab", description="Excel-first SwitchFleet lab prototype helper.")
+    parser = argparse.ArgumentParser(prog="switchfleet", description="Excel-first SwitchFleet local admin CLI.")
     parser.add_argument("--state-dir", default=".switchfleet_lab")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--json", action="store_true")
@@ -41,6 +42,7 @@ def main(argv: list[str] | None = None) -> None:
     sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("doctor", help="Check Excel lab runtime prerequisites")
+    sub.add_parser("summary", help="Summarize Excel inventory, runtime support, backups, and apply readiness")
     list_parser = sub.add_parser("list", help="List Excel inventory devices with runtime decisions")
     list_parser.add_argument("--vendor")
     list_parser.add_argument("--category")
@@ -68,19 +70,19 @@ def main(argv: list[str] | None = None) -> None:
     evaluate = sub.add_parser("evaluate-apply", help="Evaluate file-mode lab apply safety gates")
     _apply_args(evaluate)
 
-    execute = sub.add_parser("execute-apply", help="Execute fake or real lab apply after file-mode gates pass")
-    _apply_args(execute)
-    execute.add_argument("--real-lab", action="store_true")
-
-    audit = sub.add_parser("audit-tail", help="Show file-mode audit tail")
-    audit.add_argument("--limit", type=int, default=20)
-
     certify = sub.add_parser("certify", help="Record lab-only capability certification evidence")
     certify.add_argument("--device", required=True)
     certify.add_argument("--capability", required=True)
     certify.add_argument("--credential", required=True)
 
     sub.add_parser("certification-report", help="Show lab certification records")
+
+    execute = sub.add_parser("execute-apply", help="Execute fake or real lab apply after file-mode gates pass")
+    _apply_args(execute)
+    execute.add_argument("--real-lab", action="store_true")
+
+    audit = sub.add_parser("audit-tail", help="Show file-mode audit tail")
+    audit.add_argument("--limit", type=int, default=20)
 
     args = parser.parse_args(argv)
     if args.command is None or args.inventory_path is None:
@@ -100,11 +102,13 @@ def _dispatch(args: argparse.Namespace) -> dict[str, Any]:
     devices = load_excel_inventory(args.inventory_path)
     if args.command == "doctor":
         return _doctor(args, state, devices)
+    if args.command == "summary":
+        return _summary(state, devices)
     if args.command == "list":
         return {"devices": _list_devices(devices, args)}
     if args.command == "check-runtime":
         device = resolve_excel_device(devices, args.device)
-        return {"device": _device_dict(device), "runtime_decision": _runtime_decision(device)}
+        return _check_runtime(state, device)
     if args.command == "add-credential":
         vault = _vault(state)
         secret = _read_secret(args)
@@ -126,6 +130,7 @@ def _dispatch(args: argparse.Namespace) -> dict[str, Any]:
                 "device_label": device.label,
                 "operation": operation.value,
                 "command_hash": hash_value,
+                "private_command_hash": _private_command_hash(commands),
                 "commands": [command.to_safe_dict() for command in commands],
             }
         )
@@ -138,6 +143,33 @@ def _dispatch(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "evaluate-apply":
         decision, _transport_decision = _evaluate(state, devices, args, require_real_apply=False)
         return decision.to_dict()
+    if args.command == "certify":
+        device = resolve_excel_device(devices, args.device)
+        capability = _certification_capability(args.capability)
+        _assert_certification_allowed(state, device, capability, args.credential)
+        record = state.save_lab_validation(
+            {
+                "device_id": device.id,
+                "device_label": device.label,
+                "ip_address": device.ip_address,
+                "vendor": device.vendor,
+                "model": device.model,
+                "driver_name": device.driver_name,
+                "capability": capability.value,
+                "production_certified": False,
+                "evidence": "Excel lab operator certification record; validate on real firmware before production use.",
+            }
+        )
+        state.append_audit(
+            action="excel_lab.certified",
+            actor="excel-lab",
+            object_type="lab_validation",
+            object_id=record["id"],
+            metadata={"device_id": device.id, "capability": capability.value},
+        )
+        return {"certification": record}
+    if args.command == "certification-report":
+        return {"certifications": state.read_lab_validations()}
     if args.command == "execute-apply":
         if args.real_lab and not args.simulation_hash:
             raise SystemExit("Real lab execution requires --simulation-hash from a prior dry-run")
@@ -153,33 +185,6 @@ def _dispatch(args: argparse.Namespace) -> dict[str, Any]:
         return {"decision": decision.to_dict(), "execution": result.to_dict()}
     if args.command == "audit-tail":
         return {"events": state.audit_tail(args.limit)}
-    if args.command == "certify":
-        device = resolve_excel_device(devices, args.device)
-        _vault(state).get_metadata(args.credential)
-        _assert_allowlisted(device)
-        record = state.save_lab_validation(
-            {
-                "device_id": device.id,
-                "device_label": device.label,
-                "ip_address": device.ip_address,
-                "vendor": device.vendor,
-                "model": device.model,
-                "driver_name": device.driver_name,
-                "capability": args.capability,
-                "production_certified": False,
-                "evidence": "Excel lab operator certification record; validate on real firmware before production use.",
-            }
-        )
-        state.append_audit(
-            action="excel_lab.certified",
-            actor="excel-lab",
-            object_type="lab_validation",
-            object_id=record["id"],
-            metadata={"device_id": device.id, "capability": args.capability},
-        )
-        return {"certification": record}
-    if args.command == "certification-report":
-        return {"certifications": state.read_lab_validations()}
     raise SystemExit(f"Unsupported command: {args.command}")
 
 
@@ -216,6 +221,47 @@ def _doctor(args: argparse.Namespace, state: FileLabState, devices: list[ExcelIn
         "alembic_required": False,
         "netmiko_available": importlib.util.find_spec("netmiko") is not None,
         "paramiko_available": importlib.util.find_spec("paramiko") is not None,
+    }
+
+
+def _summary(state: FileLabState, devices: list[ExcelInventoryDevice]) -> dict[str, Any]:
+    vendors: dict[str, int] = {}
+    models: dict[str, int] = {}
+    families: dict[str, int] = {}
+    transports: dict[str, int] = {}
+    backup_statuses: dict[str, int] = {}
+    apply_statuses: dict[str, int] = {}
+    allowlisted = 0
+    for device in devices:
+        report = _runtime_report(state, device)
+        vendor = device.normalized_vendor or device.vendor
+        model = device.normalized_model or device.model
+        family = str(report["family"])
+        transport = str(report["transport"])
+        backup_status = str(report["backup_status"]["status"])
+        apply_status = str(report["apply_status"]["status"])
+        vendors[vendor] = vendors.get(vendor, 0) + 1
+        models[model] = models.get(model, 0) + 1
+        families[family] = families.get(family, 0) + 1
+        transports[transport] = transports.get(transport, 0) + 1
+        backup_statuses[backup_status] = backup_statuses.get(backup_status, 0) + 1
+        apply_statuses[apply_status] = apply_statuses.get(apply_status, 0) + 1
+        if _is_allowlisted(device):
+            allowlisted += 1
+    return {
+        "device_count": len(devices),
+        "allowlisted_count": allowlisted,
+        "vendors": dict(sorted(vendors.items())),
+        "models": dict(sorted(models.items())),
+        "families": dict(sorted(families.items())),
+        "transports": dict(sorted(transports.items())),
+        "backup_statuses": dict(sorted(backup_statuses.items())),
+        "apply_statuses": dict(sorted(apply_statuses.items())),
+        "unsupported_count": apply_statuses.get("unsupported", 0),
+        "blocked_count": apply_statuses.get("blocked_until_certified", 0),
+        "candidate_count": apply_statuses.get("candidate_gated", 0),
+        "database_required": False,
+        "production_apply_enabled": get_settings().production_real_apply_enabled,
     }
 
 
@@ -256,18 +302,15 @@ def _evaluate(
 
 
 def _render(device: ExcelInventoryDevice, operation: VendorOperation, parameters: dict[str, Any]):
-    decision = DriverCapabilityMatrix().decide(
-        vendor=device.vendor,
-        model=device.model,
-        platform=device.platform,
-        driver_name=device.driver_name,
-        device_id=device.id,
-        hostname=device.hostname,
-    )
+    decision = _decision_for_device(device)
     return VendorCommandTemplateService().render(decision.family, operation, parameters)
 
 
-def _runtime_decision(device: ExcelInventoryDevice) -> dict[str, Any]:
+def _private_command_hash(commands: list[Any]) -> str:
+    return private_command_hash(commands, secret_key=get_settings().secret_key)
+
+
+def _decision_for_device(device: ExcelInventoryDevice):
     decision = DriverCapabilityMatrix().decide(
         vendor=device.vendor,
         model=device.model,
@@ -276,11 +319,114 @@ def _runtime_decision(device: ExcelInventoryDevice) -> dict[str, Any]:
         device_id=device.id,
         hostname=device.hostname,
     )
+    return decision
+
+
+def _runtime_decision(device: ExcelInventoryDevice) -> dict[str, Any]:
+    return _runtime_report(None, device)["decision"]
+
+
+def _check_runtime(state: FileLabState, device: ExcelInventoryDevice) -> dict[str, Any]:
+    report = _runtime_report(state, device)
+    return {
+        "device": _device_dict(device),
+        "original_vendor": device.original_vendor or device.vendor,
+        "original_model": device.original_model or device.model,
+        "normalized_vendor": device.normalized_vendor or device.vendor,
+        "normalized_model": device.normalized_model or device.model,
+        "family": report["family"],
+        "driver": report["driver"],
+        "transport": report["transport"],
+        "backup_status": report["backup_status"],
+        "apply_status": report["apply_status"],
+        "reasons": report["reasons"],
+        "warnings": report["warnings"],
+        "runtime_decision": report["decision"],
+    }
+
+
+def _runtime_report(state: FileLabState | None, device: ExcelInventoryDevice) -> dict[str, Any]:
+    decision = _decision_for_device(device)
     contract = get_vendor_driver_contract(decision.family)
     data = decision.to_safe_dict()
     data["apply_support_level"] = contract.apply_support_level.value
     data["production_certified"] = contract.production_certified
-    return data
+    backup = _backup_status(state, device, decision, contract.read_only_commands)
+    apply_status = _apply_status(decision, contract.apply_support_level.value)
+    return {
+        "family": decision.family.value,
+        "driver": decision.driver_name,
+        "transport": decision.selected_transport.value,
+        "backup_status": backup,
+        "apply_status": apply_status,
+        "reasons": backup["reasons"] + apply_status["reasons"],
+        "warnings": list(decision.safety_warnings),
+        "decision": data,
+    }
+
+
+def _backup_status(
+    state: FileLabState | None,
+    device: ExcelInventoryDevice,
+    decision: Any,
+    read_only_commands: tuple[str, ...],
+) -> dict[str, Any]:
+    reasons: list[str] = []
+    if decision.selected_transport.value in {"unsupported", "icmp_only"} or not read_only_commands:
+        reasons.append(f"{decision.family.value} has no CLI backup path in Excel lab mode")
+        return {"status": "unsupported", "latest_backup_id": None, "required_before_apply": True, "reasons": reasons}
+    latest = state.latest_backup_for(device.id) if state is not None else None
+    if latest:
+        if not _backup_is_fresh(latest):
+            return {
+                "status": "stale",
+                "latest_backup_id": latest.get("id"),
+                "required_before_apply": True,
+                "reasons": [f"A sanitized backup newer than {_backup_max_age_hours()} hours is required before lab apply."],
+            }
+        return {"status": "present", "latest_backup_id": latest.get("id"), "required_before_apply": True, "reasons": []}
+    return {
+        "status": "missing",
+        "latest_backup_id": None,
+        "required_before_apply": True,
+        "reasons": ["A sanitized backup is required before any lab config apply."],
+    }
+
+
+def _backup_is_fresh(backup: dict[str, Any]) -> bool:
+    try:
+        created_at = datetime.fromisoformat(str(backup.get("created_at") or ""))
+    except ValueError:
+        return False
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - created_at <= timedelta(hours=_backup_max_age_hours())
+
+
+def _backup_max_age_hours() -> int:
+    return max(1, int(get_settings().lab_backup_max_age_hours))
+
+
+def _apply_status(decision: Any, apply_support_level: str) -> dict[str, Any]:
+    reasons = ["config_apply_allowed is false globally; dry-run/evaluate gates are mandatory."]
+    if decision.family.value in {"unknown", "icmp", "generic_ssh", "limited_web", "non_switch"}:
+        status = "unsupported"
+        reasons.append(f"{decision.family.value} cannot config apply in Excel lab mode.")
+    elif decision.family.value in {"qtech", "eltex", "bulat"}:
+        status = "blocked_until_certified"
+        reasons.append(f"{decision.family.value} config apply is blocked until explicit certified templates exist.")
+    else:
+        status = "candidate_gated"
+        reasons.append("Candidate device requires backup, stored dry-run hash, lab validation, allowlist, credential ref, and execute gates.")
+    return {
+        "status": status,
+        "apply_support_level": apply_support_level,
+        "config_apply_allowed": False,
+        "production_allowed": False,
+        "requires_backup": True,
+        "requires_dry_run": True,
+        "reasons": reasons,
+    }
 
 
 def _command_parameters(args: argparse.Namespace) -> dict[str, Any]:
@@ -292,6 +438,58 @@ def _command_parameters(args: argparse.Namespace) -> dict[str, Any]:
     if operation == VendorOperation.vlan_assign_port:
         return {"interface": args.interface, "vlan_id": args.vlan_id}
     return {}
+
+
+def _certification_capability(value: str) -> VendorOperation:
+    normalized = value.strip().casefold().replace("-", "_")
+    if normalized == "backup":
+        normalized = VendorOperation.read_backup.value
+    try:
+        return VendorOperation(normalized)
+    except ValueError as exc:
+        allowed = ", ".join(item.value for item in VendorOperation)
+        raise SystemExit(f"Unsupported certification capability {value!r}; expected one of: backup, {allowed}") from exc
+
+
+def _assert_certification_allowed(
+    state: FileLabState,
+    device: ExcelInventoryDevice,
+    capability: VendorOperation,
+    credential_ref: str,
+) -> None:
+    vault = _vault(state)
+    usable, reasons = vault.check_usable(credential_ref)
+    if not usable:
+        raise SystemExit("; ".join(reasons))
+    _assert_allowlisted(device)
+    decision = _decision_for_device(device)
+    contract = get_vendor_driver_contract(decision.family)
+    if capability == VendorOperation.read_backup:
+        if decision.selected_transport.value in {"unsupported", "icmp_only"} or not contract.read_only_commands:
+            raise SystemExit(f"{decision.family.value} cannot be certified for CLI backup in Excel lab mode")
+        return
+    blocked_families = {"unknown", "generic_ssh", "icmp", "limited_web", "non_switch", "qtech", "eltex", "bulat"}
+    if decision.family.value in blocked_families or decision.selected_transport.value in {"unsupported", "icmp_only"}:
+        raise SystemExit(f"{decision.family.value} cannot be certified for config apply in Excel lab mode")
+    if not contract.supports_operation(capability) or capability not in contract.config_command_templates:
+        raise SystemExit(f"{decision.family.value} has no runnable template for certification capability {capability.value}")
+    latest_backup = state.latest_backup_for(device.id)
+    if not latest_backup:
+        raise SystemExit("A sanitized backup is required before certifying config apply")
+    if not _backup_is_fresh(latest_backup):
+        raise SystemExit(f"A sanitized backup newer than {_backup_max_age_hours()} hours is required before certifying config apply")
+    if not _has_stored_dry_run(state, device, capability):
+        raise SystemExit("A stored dry-run for this device and capability is required before certification")
+
+
+def _has_stored_dry_run(state: FileLabState, device: ExcelInventoryDevice, capability: VendorOperation) -> bool:
+    for item in state.read_dry_runs():
+        if item.get("device_id") != device.id or item.get("operation") != capability.value:
+            continue
+        if capability == VendorOperation.password_change and not item.get("private_command_hash"):
+            continue
+        return True
+    return False
 
 
 def _vault(state: FileLabState) -> FileCredentialVault:
@@ -339,6 +537,10 @@ def _device_dict(device: ExcelInventoryDevice) -> dict[str, Any]:
         "ip_address": device.ip_address,
         "vendor": device.vendor,
         "model": device.model,
+        "original_vendor": device.original_vendor or device.vendor,
+        "original_model": device.original_model or device.model,
+        "normalized_vendor": device.normalized_vendor or device.vendor,
+        "normalized_model": device.normalized_model or device.model,
         "category": device.category,
         "status": device.status,
         "location": device.location,
