@@ -3,7 +3,7 @@ import pytest
 from app.core.exceptions import ConfigApplyNotAllowedError, SafetyError
 from app.core.transport_strategy import DeviceFamily
 from app.core.vendor_driver_contracts import VendorOperation
-from app.services.vendor_command_templates import VendorCommandTemplateService, command_hash
+from app.services.vendor_command_templates import VendorCommandTemplateService, command_hash, private_command_hash
 
 
 def test_vendor_templates_render_secret_commands_as_secret_and_redacted() -> None:
@@ -19,6 +19,23 @@ def test_vendor_templates_render_secret_commands_as_secret_and_redacted() -> Non
     assert "VerySecret" in "\n".join(command.command for command in commands)
     assert "VerySecret" not in "\n".join(command.to_safe_dict()["command"] for command in commands)
     assert command_hash(commands)
+
+
+def test_secret_command_public_hash_is_redacted_but_private_hash_binds_secret() -> None:
+    service = VendorCommandTemplateService()
+    first = service.render(
+        DeviceFamily.cisco_ios,
+        VendorOperation.password_change,
+        {"username": "admin", "password": "FirstSecret", "level": 15},
+    )
+    second = service.render(
+        DeviceFamily.cisco_ios,
+        VendorOperation.password_change,
+        {"username": "admin", "password": "SecondSecret", "level": 15},
+    )
+
+    assert command_hash(first) == command_hash(second)
+    assert private_command_hash(first, secret_key="excel-lab-secret-key") != private_command_hash(second, secret_key="excel-lab-secret-key")
 
 
 def test_vendor_templates_deny_invalid_inputs_and_uncertain_vendors() -> None:

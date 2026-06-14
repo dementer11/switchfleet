@@ -76,7 +76,7 @@ def test_driver_runtime_device_decision_uses_inventory_device() -> None:
 
 def test_driver_runtime_api_has_no_apply_or_run_endpoint() -> None:
     client = TestClient(app)
-    routes = {route.path for route in app.routes if "/api/v1/driver-runtime" in route.path}
+    routes = {route for route in app.openapi()["paths"] if "/api/v1/driver-runtime" in route}
 
     assert all("/apply" not in route for route in routes)
     assert all(not route.endswith("/run") for route in routes)

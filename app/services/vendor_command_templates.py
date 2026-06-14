@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -37,6 +38,26 @@ def command_hash(commands: list[RenderedCommand] | list[dict[str, Any]] | list[s
         else:
             lines.append(mask_secrets(str(command)))
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def private_command_hash(commands: list[RenderedCommand] | list[dict[str, Any]] | list[str], *, secret_key: str | None = None) -> str:
+    lines: list[str] = []
+    contains_secret = False
+    for command in commands:
+        if isinstance(command, RenderedCommand):
+            contains_secret = contains_secret or command.secret
+            lines.append(command.command)
+        elif isinstance(command, dict):
+            contains_secret = contains_secret or bool(command.get("secret"))
+            lines.append(str(command.get("command") or ""))
+        else:
+            lines.append(str(command))
+    payload = "\n".join(lines).encode("utf-8")
+    if contains_secret:
+        if not secret_key:
+            raise SafetyError("NCP_SECRET_KEY is required to bind secret-bearing dry-run command plans")
+        return hmac.new(secret_key.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+    return hashlib.sha256(payload).hexdigest()
 
 
 class VendorCommandTemplateService:

@@ -67,27 +67,39 @@ Expected Excel columns:
 Start with:
 
 ```powershell
-python scripts/excel_lab.py inventory.xlsx doctor
-python scripts/excel_lab.py inventory.xlsx list
-python scripts/excel_lab.py inventory.xlsx check-runtime --device 10.13.4.67
+switchfleet inventory.xlsx doctor
+switchfleet inventory.xlsx summary
+switchfleet inventory.xlsx list
+switchfleet inventory.xlsx check-runtime --device 10.13.4.67
 ```
+
+For a checkout smoke test, use the included private-address lab sample:
+
+```powershell
+switchfleet examples/lab/inventory.example.xlsx doctor
+switchfleet examples/lab/inventory.example.xlsx summary
+```
+
+When working directly from a source checkout before installation, the compatibility script remains available as `python scripts/excel_lab.py`.
 
 Create a local encrypted credential ref:
 
 ```powershell
 $env:NCP_SECRET_KEY = "replace-with-long-random-lab-secret"
-python scripts/excel_lab.py inventory.xlsx add-credential --name lab-admin --username admin --password-prompt
+switchfleet inventory.xlsx add-credential --name lab-admin --username admin --password-prompt
 ```
 
 Run the lab flow:
 
 ```powershell
 $env:NCP_LAB_DEVICE_ALLOWLIST = "10.13.4.67"
-python scripts/excel_lab.py inventory.xlsx backup --device 10.13.4.67 --credential lab-admin
-python scripts/excel_lab.py inventory.xlsx dry-run --device 10.13.4.67 --operation vlan_create --vlan-id 123 --name TEST_VLAN
-python scripts/excel_lab.py inventory.xlsx certify --device 10.13.4.67 --capability vlan_create --credential lab-admin
-python scripts/excel_lab.py inventory.xlsx evaluate-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
+switchfleet inventory.xlsx backup --device 10.13.4.67 --credential lab-admin
+switchfleet inventory.xlsx dry-run --device 10.13.4.67 --operation vlan_create --vlan-id 123 --name TEST_VLAN
+switchfleet inventory.xlsx evaluate-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
+switchfleet inventory.xlsx certify --device 10.13.4.67 --capability vlan_create --credential lab-admin
 ```
+
+Certification is lab-only and scoped: config capabilities can be certified only for allowlisted devices with a usable credential reference, fresh sanitized backup, stored dry-run for that device/capability, and a supported vendor template. Unsupported, ICMP, non-switch, QTECH, Eltex, and Bulat config apply remain blocked until explicit certified templates/policy exist.
 
 Real lab execution remains explicit and lab-only:
 
@@ -95,7 +107,7 @@ Real lab execution remains explicit and lab-only:
 $env:NCP_ALLOW_REAL_DEVICE_APPLY = "true"
 $env:NCP_LAB_REAL_APPLY_ENABLED = "true"
 $env:NCP_PRODUCTION_REAL_APPLY_ENABLED = "false"
-python scripts/excel_lab.py inventory.xlsx execute-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run> --real-lab
+switchfleet inventory.xlsx execute-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run> --real-lab
 ```
 
 Excel lab state is stored under `.switchfleet_lab/` by default. Credential payloads are encrypted, backups are sanitized, audit events are JSONL, and production apply remains disabled. The DB-backed FastAPI platform is still available as enterprise mode below.
@@ -287,11 +299,16 @@ By default `/execute` uses fake lab transport and records intended redacted comm
 The primary runnable lab prototype is Excel-first and file-based:
 
 ```powershell
-python scripts/excel_lab.py inventory.xlsx doctor
-python scripts/excel_lab.py inventory.xlsx list
-python scripts/excel_lab.py inventory.xlsx add-credential --name lab-admin --username admin --password-prompt
-python scripts/excel_lab.py inventory.xlsx backup --device 10.13.4.67 --credential lab-admin
-python scripts/excel_lab.py inventory.xlsx dry-run --device 10.13.4.67 --operation vlan_create --vlan-id 123 --name TEST_VLAN
+switchfleet inventory.xlsx doctor
+switchfleet inventory.xlsx summary
+switchfleet inventory.xlsx list
+switchfleet inventory.xlsx check-runtime --device 10.13.4.67
+switchfleet inventory.xlsx add-credential --name lab-admin --username admin --password-prompt
+switchfleet inventory.xlsx backup --device 10.13.4.67 --credential lab-admin
+switchfleet inventory.xlsx dry-run --device 10.13.4.67 --operation vlan_create --vlan-id 123 --name TEST_VLAN
+switchfleet inventory.xlsx evaluate-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
+switchfleet inventory.xlsx certify --device 10.13.4.67 --capability vlan_create --credential lab-admin
+switchfleet inventory.xlsx execute-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run> --real-lab
 ```
 
 The older `scripts/lab_prototype.py` helper is DB-backed enterprise prototype mode. Use it only when you intentionally want SQLAlchemy/PostgreSQL-backed prototype records:
@@ -311,12 +328,24 @@ Real lab execution remains behind lab safety gates and requires lab env flags, a
 
 ## Install For Development
 
-For the Excel-first lab prototype only:
+For the Excel-first local tool only.
+
+Windows PowerShell:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e .
+switchfleet --help
+```
+
+Linux/macOS shell:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e .
+switchfleet --help
 ```
 
 For the optional enterprise backend and test suite:
@@ -494,9 +523,9 @@ netops apply inventory.csv `
 
 Running `netops apply` without `--dry-run` exits with a controlled safety error. Real CLI apply remains postponed until the Apply Safety Kernel and lab-only real apply stages.
 
-## Offline And Portable Release Assets
+## Offline And Portable SwitchFleet Local Assets
 
-GitHub releases include:
+GitHub releases include Excel-first local Windows/Linux offline bundles and a Windows portable bundle:
 
 - `switchfleet-windows-offline-<version>.zip`
 - `switchfleet-linux-offline-<version>.tar.gz`
@@ -504,12 +533,13 @@ GitHub releases include:
 - `switchfleet-windows-portable-<version>.zip`
 - `.sha256` files for every archive
 
+These local bundles install the `switchfleet` Excel CLI and its local runtime dependencies only. They do not install or start PostgreSQL, Redis, Alembic, FastAPI, Docker, or the optional enterprise API.
+
 Windows offline:
 
 ```powershell
 .\install.cmd
 .\switchfleet.cmd --help
-.\switchfleet-api.cmd
 ```
 
 Linux / RED OS:
@@ -517,15 +547,24 @@ Linux / RED OS:
 ```bash
 ./install.sh
 ./switchfleet --help
-./switchfleet-api
 ```
 
 Windows portable:
 
 ```powershell
 .\switchfleet.cmd --help
-.\switchfleet-api.cmd
 ```
+
+macOS uses the same Excel-first Python package path as Linux:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install .
+switchfleet --help
+```
+
+The optional enterprise API remains available from a source checkout or package install with `pip install -e ".[enterprise]"`. The primary `switchfleet` Excel workflow and local release bundles do not require Docker, PostgreSQL, Redis, Alembic, FastAPI startup, or a database.
 
 ## Safety Rules
 

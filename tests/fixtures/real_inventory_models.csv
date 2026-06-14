@@ -1,0 +1,36 @@
+Status,Device Label,Model,IP Address,Vendor,Device Category,Location,Contact
+Active,huawei-s5735,S5735-L48T4X-A/A1,10.13.4.10,HUAWEI,Switch,Lab,NetOps
+Active,huawei-s5731,S5731,10.13.4.11,Huawei,Switch,Lab,NetOps
+Active,huawei-s5732,S5732,10.13.4.12,Huawei,Switch,Lab,NetOps
+Active,huawei-s5720,S5720,10.13.4.13,Huawei,Switch,Lab,NetOps
+Active,huawei-s5700,S5700,10.13.4.14,Huawei,Switch,Lab,NetOps
+Active,huawei-s6730,S6730,10.13.4.15,Huawei,Switch,Lab,NetOps
+Active,huawei-ce6855,CE6855,10.13.4.16,Huawei,Switch,Lab,NetOps
+Active,huawei-s1720,S1720,10.13.4.17,Huawei,Switch,Lab,NetOps
+Active,huawei-s2309,S2309,10.13.4.18,Huawei,Switch,Lab,NetOps
+Active,huawei-s2403,S2403,10.13.4.19,Huawei,Switch,Lab,NetOps
+Active,hpe-1910,1910,10.13.4.20,Hewlett Packard,Switch,Lab,NetOps
+Active,hpe-1920,1920,10.13.4.21,HP,Switch,Lab,NetOps
+Active,hpe-5130,5130,10.13.4.22,HPE,Switch,Lab,NetOps
+Active,3com-s4210,S4210,10.13.4.23,3Com,Switch,Lab,NetOps
+Active,3com-s5500,S5500,10.13.4.24,3Com,Switch,Lab,NetOps
+Active,hpe-2510,2510,10.13.4.25,HPE,Switch,Lab,NetOps
+Active,hpe-2530,2530,10.13.4.26,HPE,Switch,Lab,NetOps
+Active,hpe-1620,1620,10.13.4.27,HPE,Limited/Web,Lab,NetOps
+Active,hpe-1820,1820,10.13.4.28,HPE,Limited/Web,Lab,NetOps
+Active,hpe-1905,1905,10.13.4.29,HPE,Limited/Web,Lab,NetOps
+Active,qtech-4610,QSW-4610,10.13.4.30,QTECH,Switch,Lab,NetOps
+Active,qtech-3750,QSW-3750,10.13.4.31,QTECH,Switch,Lab,NetOps
+Active,eltex-2324,MES2324,10.13.4.32,Eltex,Switch,Lab,NetOps
+Active,eltex-2348,MES2348,10.13.4.33,Eltex,Switch,Lab,NetOps
+Active,eltex-2448,MES2448,10.13.4.34,Eltex,Switch,Lab,NetOps
+Active,bulat-2500,BS2500,10.13.4.35,Bulat,Switch,Lab,NetOps
+Active,bulat-6300,BS6300,10.13.4.36,Bulat,Switch,Lab,NetOps
+Active,bulat-bk,BK-A837,10.13.4.37,Bulat,Switch,Lab,NetOps
+Active,dell-3524,PowerConnect 3524,10.13.4.38,Dell,Switch,Lab,NetOps
+Active,cisco-2960,Cat2960,10.13.4.39,Cisco,Switch,Lab,NetOps
+Active,cisco-37xx,Catalyst 37xxStack,10.13.4.40,Cisco,Switch,Lab,NetOps
+Active,dlink-des1100,DES1100,10.13.4.41,D-Link,Unmanaged,Lab,NetOps
+Active,continent-500,Continent-500,10.13.4.42,SecurityCode,Security Appliance,Lab,SecOps
+Active,unknown-snmp,Unknown SNMP Product,10.13.4.43,Unknown,Switch,Lab,NetOps
+Active,icmp-only,ICMP-only,10.13.4.44,ICMP,Health,Lab,NetOps

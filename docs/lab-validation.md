@@ -47,60 +47,86 @@ For every vendor/model/firmware profile, save sanitized transcripts for:
 
 ## Step-By-Step Validation
 
+Use the Excel-first `switchfleet` command for runnable local validation. The older legacy apply command path is
+intentionally blocked for destructive execution and should be used only for legacy dry-run/plan inspection.
+
 1. Run inventory recognition:
 
    ```powershell
-   netops inventory ".\lab-inventory.csv"
+   switchfleet inventory.xlsx check-runtime --device 10.13.4.67
    ```
 
    Confirm the selected driver and transport match the device family.
 
-2. Render backup plans:
+2. Run the local readiness summary:
 
    ```powershell
-   netops plan-backup ".\lab-inventory.csv"
+   switchfleet inventory.xlsx doctor
+   switchfleet inventory.xlsx summary
    ```
 
-   Confirm only read-only commands are emitted.
+   Confirm the Excel file is readable, DB setup is not required, and unsupported/non-switch/ICMP rows fail closed.
 
-3. Capture a backup:
+3. Store a credential reference:
 
    ```powershell
-   $env:SWITCH_PASS = "lab-current-password"
-   netops backup ".\lab-inventory.csv" --login labadmin --password-env SWITCH_PASS --output-dir ".\lab-backups" --limit 1
+   $env:NCP_SECRET_KEY = "replace-with-long-random-lab-secret"
+   switchfleet inventory.xlsx add-credential --name lab-admin --username labadmin --password-prompt
    ```
 
-   Confirm the backup is complete and has no pager artifacts.
+   Confirm `.switchfleet_lab/credentials.json` contains only encrypted payloads and no plaintext password.
 
-4. Render password dry-run:
+4. Capture a read-only backup:
 
    ```powershell
+   $env:NCP_LAB_DEVICE_ALLOWLIST = "10.13.4.67"
+   switchfleet inventory.xlsx backup --device 10.13.4.67 --credential lab-admin
+   ```
+
+   Confirm the backup is sanitized, complete, and has no pager artifacts.
+
+5. Render dry-runs:
+
+   ```powershell
+   switchfleet inventory.xlsx dry-run --device 10.13.4.67 --operation vlan_create --vlan-id 3999 --name LAB_CANARY
    $env:NEW_SWITCH_PASS = "lab-new-password"
-   netops plan-password ".\lab-inventory.csv" --username lab-temp --new-password-env NEW_SWITCH_PASS
+   switchfleet inventory.xlsx dry-run --device 10.13.4.67 --operation password_change --username lab-temp --new-password-env NEW_SWITCH_PASS
    ```
 
-   Confirm the secret is redacted by default.
+   Confirm commands match the exact CLI syntax for the platform and secret commands are redacted in output and state.
 
-5. Render VLAN and port dry-runs:
+6. Evaluate gates:
 
    ```powershell
-   netops apply ".\lab-inventory.csv" --operation vlan --vlan-id 3999 --name LAB_CANARY --dry-run
-   netops apply ".\lab-inventory.csv" --operation port --port GigabitEthernet0/0/1 --description LAB_CANARY --dry-run
+   switchfleet inventory.xlsx evaluate-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 3999 --name LAB_CANARY --simulation-hash <hash-from-dry-run>
    ```
 
-   Confirm commands match the exact CLI syntax for the platform.
+   Confirm evaluation does not decrypt credentials or open SSH and denies until backup, certification, hash, allowlist,
+   and lock gates are satisfied.
 
-6. Execute a single-device CLI lab apply only when console recovery is available:
+7. Record lab-only certification evidence:
 
    ```powershell
-   netops apply ".\lab-inventory.csv" --login labadmin --password-env SWITCH_PASS --operation vlan --vlan-id 3999 --name LAB_CANARY --pre-backup --post-backup --audit-log ".\lab-audit.jsonl" --limit 1
+   switchfleet inventory.xlsx certify --device 10.13.4.67 --capability vlan_create --credential lab-admin
+   switchfleet inventory.xlsx certification-report
    ```
 
-   Confirm pre-backup, post-backup, audit log, and command status.
+   Confirm certification remains lab-only and does not mark the device production-certified.
 
-7. Verify manually on the switch with show/display commands.
+8. Execute a single-device Excel lab apply only when console recovery is available:
 
-8. Remove temporary VLANs, ACLs, users, and descriptions after validation.
+   ```powershell
+   $env:NCP_ALLOW_REAL_DEVICE_APPLY = "true"
+   $env:NCP_LAB_REAL_APPLY_ENABLED = "true"
+   $env:NCP_PRODUCTION_REAL_APPLY_ENABLED = "false"
+   switchfleet inventory.xlsx execute-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 3999 --name LAB_CANARY --simulation-hash <hash-from-dry-run> --real-lab
+   ```
+
+   Confirm the safety decision is allowed before credential decrypt or SSH transport creation.
+
+9. Verify manually on the switch with show/display commands.
+
+10. Remove temporary VLANs, ACLs, users, and descriptions after validation.
 
 ## Acceptance Criteria
 

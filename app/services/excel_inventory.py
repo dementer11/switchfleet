@@ -39,6 +39,10 @@ class ExcelInventoryDevice:
     contact: str | None
     driver_name: str | None
     platform: str | None
+    original_vendor: str | None = None
+    original_model: str | None = None
+    normalized_vendor: str | None = None
+    normalized_model: str | None = None
 
 
 def load_excel_inventory(path: str | Path) -> list[ExcelInventoryDevice]:
@@ -97,21 +101,29 @@ def infer_runtime_hints(vendor: str, model: str, category: str | None = None) ->
         return "ReadOnlyICMPDriver", "icmp"
     if "unknown product" in text or "unknown snmp product" in text:
         return None, None
+    if "securitycode" in text or "continent" in text or "security appliance" in text:
+        return "NonSwitchInventoryDriver", "non_switch"
+    if "des1100" in text or "des-1100" in text or "unmanaged" in text:
+        return "LimitedWebInventoryDriver", "limited_web"
     if "generic" in text:
         return "GenericSSHDriver", "generic"
-    if "huawei" in text or re.search(r"\bs(17|23|24|57|67)\d*", text):
+    if re.search(r"\bqsw[-\s]?(4610|3750)\b", text):
+        return "QtechQswDriver", "qtech"
+    if re.search(r"\bs(17|23|24|57|67)\d*", text) or re.search(r"\bce68\d*", text) or "vrp" in text:
         return "HuaweiVRPDriver", "vrp"
-    if "cisco" in text or "catalyst" in text:
+    if "catalyst" in text or "cat2960" in text or "37xxstack" in text:
         return "CiscoIOSDriver", "ios"
-    if any(value in text for value in ("hpe", "hewlett packard", " hp ", "3com", "comware", "1910", "1920", "1950", "5130")):
-        return "HPComwareDriver", "comware"
+    if any(value in text for value in ("1620", "1820", "1905", "limited web")):
+        return "LimitedWebInventoryDriver", "limited_web"
     if "procurve" in text or re.search(r"\b25(10|30)\b", text):
         return "HPEProCurveDriver", "procurve"
-    if "eltex" in text or "mes" in text:
+    if any(value in text for value in ("comware", "1910", "1920", "1950", "5130", "s4210", "s5500")):
+        return "HPComwareDriver", "comware"
+    if "mes2324" in text or "mes2348" in text or "mes2448" in text:
         return "EltexMESDriver", "mes"
-    if "bulat" in text or re.search(r"\bbs\d+", text):
+    if re.search(r"\bbs(2500|6300)\b", text) or "bk-a837" in text:
         return "BulatBSDriver", "bulat"
-    if "dell" in text or "powerconnect" in text:
+    if "powerconnect" in text:
         return "DellPowerConnectDriver", "dell"
     return None, None
 
@@ -143,8 +155,10 @@ def _row_dict(row: tuple[Any, ...], header_map: dict[str, int]) -> dict[str, str
 def _device_from_row(item: dict[str, str], row_index: int) -> ExcelInventoryDevice:
     label = item["Device Label"]
     ip_address = item["IP Address"]
-    vendor = _normalize_vendor(item["Vendor"])
-    model = item["Model"].strip()
+    original_vendor = item["Vendor"].strip()
+    original_model = item["Model"].strip()
+    vendor = _normalize_vendor(original_vendor, original_model, item.get("Device Category"))
+    model = _normalize_model(original_model)
     if not label or not ip_address or not vendor or not model:
         raise ExcelInventoryError(f"Excel row {row_index} is missing label, IP address, vendor, or model")
     driver_name, platform = infer_runtime_hints(vendor, model, item.get("Device Category"))
@@ -162,6 +176,10 @@ def _device_from_row(item: dict[str, str], row_index: int) -> ExcelInventoryDevi
         contact=item["Contact"] or None,
         driver_name=driver_name,
         platform=platform,
+        original_vendor=original_vendor,
+        original_model=original_model,
+        normalized_vendor=vendor,
+        normalized_model=model,
     )
 
 
@@ -173,13 +191,20 @@ def _skip_row(item: dict[str, str]) -> bool:
     return category in {"service", "services"} or status == "service"
 
 
-def _normalize_vendor(value: str) -> str:
+def _normalize_vendor(value: str, model: str = "", category: str | None = None) -> str:
     text = " ".join(value.split())
     folded = text.casefold()
+    combined = f"{folded} {model.casefold()} {(category or '').casefold()}"
     if folded in {"hp", "hpe", "hewlett packard", "hewlett-packard"}:
         return "HPE"
     if folded == "3com":
         return "HPE"
+    if folded in {"qtech", "q-tech"} or "qsw" in combined:
+        return "QTECH"
+    if folded in {"d-link", "dlink"}:
+        return "D-Link"
+    if "securitycode" in combined or "continent" in combined:
+        return "SecurityCode"
     if folded == "huawei":
         return "Huawei"
     if folded == "cisco":
@@ -190,6 +215,26 @@ def _normalize_vendor(value: str) -> str:
         return "Eltex"
     if folded == "bulat":
         return "Bulat"
+    return text
+
+
+def _normalize_model(value: str) -> str:
+    text = " ".join(value.replace("_", " ").split())
+    folded = text.casefold()
+    replacements = {
+        "cat2960": "Catalyst 2960",
+        "catalyst 37xxstack": "Catalyst 37xxStack",
+        "continent 500": "Continent-500",
+        "continent-500": "Continent-500",
+    }
+    if folded in replacements:
+        return replacements[folded]
+    qsw = re.search(r"\bqsw[-\s]?(4610|3750)\b", folded)
+    if qsw:
+        return f"QSW-{qsw.group(1)}"
+    des = re.search(r"\bdes[-\s]?1100\b", folded)
+    if des:
+        return "DES1100"
     return text
 
 

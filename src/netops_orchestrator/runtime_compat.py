@@ -35,7 +35,7 @@ LEGACY_DRIVER_TO_FAMILY: dict[str, DeviceFamily] = {
 }
 
 LEGACY_READ_ONLY_DRIVER_TO_FAMILY: dict[str, DeviceFamily] = {
-    "qtech_qsw": DeviceFamily.generic_ssh,
+    "qtech_qsw": DeviceFamily.qtech,
 }
 
 

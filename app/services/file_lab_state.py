@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.exceptions import SafetyError
+from app.utils.config_sanitizer import sanitize_config
 from app.services.report_sanitizer import sanitize_audit_metadata
 from app.utils.masking import mask_secrets
 
@@ -70,21 +71,43 @@ class FileLabState:
         return list(self._read_json(self.paths.dry_runs, {"dry_runs": []}).get("dry_runs", []))
 
     def save_dry_run(self, record: dict[str, Any]) -> dict[str, Any]:
-        dry_runs = [item for item in self.read_dry_runs() if item.get("command_hash") != record.get("command_hash")]
+        dry_runs = [
+            item
+            for item in self.read_dry_runs()
+            if not (
+                item.get("command_hash") == record.get("command_hash")
+                and item.get("device_id") == record.get("device_id")
+                and item.get("operation") == record.get("operation")
+            )
+        ]
         stored = {"id": record.get("id") or _new_id("dry-run"), "created_at": _now(), **record}
         dry_runs.append(stored)
         self._write_json(self.paths.dry_runs, {"dry_runs": sorted(dry_runs, key=lambda item: item.get("created_at", ""))})
         return stored
 
-    def get_dry_run(self, command_hash: str) -> dict[str, Any] | None:
-        return next((item for item in self.read_dry_runs() if item.get("command_hash") == command_hash), None)
+    def get_dry_run(self, command_hash: str, *, device_id: str | None = None, operation: str | None = None) -> dict[str, Any] | None:
+        for item in self.read_dry_runs():
+            if item.get("command_hash") != command_hash:
+                continue
+            if device_id is not None and item.get("device_id") != device_id:
+                continue
+            if operation is not None and item.get("operation") != operation:
+                continue
+            return item
+        return None
 
     def read_lab_validations(self) -> list[dict[str, Any]]:
         return list(self._read_json(self.paths.lab_validations, {"lab_validations": []}).get("lab_validations", []))
 
     def save_lab_validation(self, record: dict[str, Any]) -> dict[str, Any]:
         validations = self.read_lab_validations()
-        stored = {"id": record.get("id") or _new_id("validation"), "created_at": _now(), "status": "approved", **record}
+        stored = {
+            **record,
+            "id": record.get("id") or _new_id("validation"),
+            "created_at": _now(),
+            "status": "approved",
+            "production_certified": False,
+        }
         validations.append(stored)
         self._write_json(self.paths.lab_validations, {"lab_validations": validations})
         return stored
@@ -93,7 +116,9 @@ class FileLabState:
         matches = [
             item
             for item in self.read_lab_validations()
-            if item.get("device_id") == device_id and item.get("capability") in {capability, "lab_apply", "config_apply"}
+            if item.get("device_id") == device_id
+            and item.get("capability") == capability
+            and item.get("status") == "approved"
         ]
         return sorted(matches, key=lambda item: item.get("created_at", ""), reverse=True)[0] if matches else None
 
@@ -125,14 +150,18 @@ class FileLabState:
         device_dir = self.paths.backups / device_id
         device_dir.mkdir(parents=True, exist_ok=True)
         config_path = device_dir / f"{backup_id}.txt"
-        config_path.write_text(config_text, encoding="utf-8")
+        sanitized = sanitize_config(config_text)
+        config_path.write_text(sanitized.text, encoding="utf-8")
+        safe_metadata = dict(metadata)
+        safe_metadata.setdefault("config_hash", sanitized.config_hash)
+        safe_metadata.setdefault("redaction_types", sanitized.redaction_types)
         record = {
             "id": backup_id,
             "device_id": device_id,
             "created_at": _now(),
             "sanitized": True,
             "config_path": str(config_path.relative_to(self.paths.root)),
-            **metadata,
+            **safe_metadata,
         }
         index_path = self.paths.backups / "index.json"
         index = self._read_json(index_path, {"backups": []}) if index_path.exists() else {"backups": []}

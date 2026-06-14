@@ -206,7 +206,26 @@ class ExcelLabApplyExecutor:
                 executed_commands=[],
                 error="; ".join(safety_decision.reasons),
             )
-        self.state.reserve_lock(device.id, "excel lab apply")
+        if real_lab and not safety_decision.real_apply_requested:
+            return ExcelApplyResult(
+                executed=False,
+                fake_transport=False,
+                transport_kind=safety_decision.selected_transport,
+                command_count=0,
+                executed_commands=[],
+                error="Real lab execution requires a safety evaluation with real apply gates enabled",
+            )
+        try:
+            self.state.reserve_lock(device.id, "excel lab apply")
+        except SafetyError as exc:
+            return ExcelApplyResult(
+                executed=False,
+                fake_transport=not real_lab,
+                transport_kind=safety_decision.selected_transport,
+                command_count=0,
+                executed_commands=[],
+                error=str(exc),
+            )
         try:
             if not real_lab:
                 fake = FakeLabTransport(transport_kind=transport_decision.selected_transport.value)

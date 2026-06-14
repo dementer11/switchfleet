@@ -32,7 +32,7 @@ def create_app() -> FastAPI:
         version="0.2.0",
         description="Intent-based multi-vendor switch management platform.",
     )
-    application.include_router(api_router)
+    application.include_router(api_router, prefix="/api/v1")
     application.add_exception_handler(ApprovalRequiredError, _approval_required_handler)
     application.add_exception_handler(SafetyError, _safety_error_handler)
     application.add_exception_handler(ConflictError, _conflict_error_handler)

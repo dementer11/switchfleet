@@ -71,7 +71,7 @@ RUNTIME_PROFILES: tuple[DriverRuntimeProfile, ...] = (
     DriverRuntimeProfile(
         vendor="Huawei",
         family=DeviceFamily.huawei_vrp,
-        model_pattern=r"(huawei|(^|\s)(s17|s23|s24|s57|s67|ce68)|vrp)",
+        model_pattern=r"((^|\s)(s17|s23|s24|s57|s67)\d*|ce68|vrp)",
         platform_pattern=r"(vrp|huawei_vrp)",
         preferred_transport=TransportKind.netmiko,
         fallback_transport=TransportKind.paramiko,
@@ -82,8 +82,22 @@ RUNTIME_PROFILES: tuple[DriverRuntimeProfile, ...] = (
     ),
     DriverRuntimeProfile(
         vendor="HPE",
+        family=DeviceFamily.limited_web,
+        model_pattern=r"(hpe\s*)?(1620|1820|1905)|des[-\s]?1100|limited web|unmanaged",
+        platform_pattern=r"(limited_web|unmanaged)",
+        preferred_transport=TransportKind.unsupported,
+        fallback_transport=None,
+        capabilities=frozenset(),
+        driver_name="LimitedWebInventoryDriver",
+        config_apply_supported=False,
+        read_only_supported=False,
+        unsupported_reason="Limited web-managed or unmanaged devices are inventory-only in Excel lab mode.",
+        notes="No CLI backup or config apply is attempted for limited web/unmanaged devices.",
+    ),
+    DriverRuntimeProfile(
+        vendor="HPE",
         family=DeviceFamily.hpe_comware,
-        model_pattern=r"(1910|1920|5130|3com s4210|3com s5500|comware)",
+        model_pattern=r"(1910|1920|1950|5130|s4210|s5500|3com s4210|3com s5500|comware)",
         platform_pattern=r"(comware|hp_comware)",
         preferred_transport=TransportKind.netmiko,
         fallback_transport=TransportKind.custom_cli,
@@ -117,9 +131,22 @@ RUNTIME_PROFILES: tuple[DriverRuntimeProfile, ...] = (
         notes="ArubaOS-Switch is aligned with the ProCurve-style runtime strategy.",
     ),
     DriverRuntimeProfile(
+        vendor="QTECH",
+        family=DeviceFamily.qtech,
+        model_pattern=r"(qsw[-\s]?(4610|3750))",
+        platform_pattern=r"(qtech|qsw)",
+        preferred_transport=TransportKind.custom_cli,
+        fallback_transport=TransportKind.paramiko,
+        capabilities=READ_ONLY,
+        driver_name="QtechQswDriver",
+        config_apply_supported=False,
+        unsupported_reason="QTECH config apply is blocked until templates are explicitly certified.",
+        notes="QTECH inventory/runtime classification is explicit; only read-only backup/dry-run metadata is allowed now.",
+    ),
+    DriverRuntimeProfile(
         vendor="Dell",
         family=DeviceFamily.dell_os,
-        model_pattern=r"(powerconnect|dell)",
+        model_pattern=r"(powerconnect)",
         platform_pattern=r"(dell|powerconnect)",
         preferred_transport=TransportKind.netmiko,
         fallback_transport=TransportKind.custom_cli,
@@ -131,7 +158,7 @@ RUNTIME_PROFILES: tuple[DriverRuntimeProfile, ...] = (
     DriverRuntimeProfile(
         vendor="Eltex",
         family=DeviceFamily.eltex,
-        model_pattern=r"(eltex|mes2324|mes2348|mes2448)",
+        model_pattern=r"(mes2324|mes2348|mes2448)",
         platform_pattern=r"(eltex|mes)",
         preferred_transport=TransportKind.custom_cli,
         fallback_transport=TransportKind.paramiko,
@@ -144,7 +171,7 @@ RUNTIME_PROFILES: tuple[DriverRuntimeProfile, ...] = (
     DriverRuntimeProfile(
         vendor="Bulat",
         family=DeviceFamily.bulat,
-        model_pattern=r"(bulat|bs2500|bs6300)",
+        model_pattern=r"(bs2500|bs6300|bk[-\s]?a837)",
         platform_pattern=r"(bulat|bs)",
         preferred_transport=TransportKind.custom_cli,
         fallback_transport=TransportKind.paramiko,
@@ -153,6 +180,20 @@ RUNTIME_PROFILES: tuple[DriverRuntimeProfile, ...] = (
         config_apply_supported=False,
         unsupported_reason="Bulat destructive apply requires confirmed custom CLI templates and lab certification.",
         notes="Bulat uses first-party custom CLI strategy until certified templates exist.",
+    ),
+    DriverRuntimeProfile(
+        vendor="SecurityCode",
+        family=DeviceFamily.non_switch,
+        model_pattern=r"(securitycode|continent[-\s]?500|security appliance|non[-\s]?switch)",
+        platform_pattern=r"(non_switch|security_appliance)",
+        preferred_transport=TransportKind.unsupported,
+        fallback_transport=None,
+        capabilities=frozenset(),
+        driver_name="NonSwitchInventoryDriver",
+        config_apply_supported=False,
+        read_only_supported=False,
+        unsupported_reason="Non-switch/security appliance inventory records are not CLI switch targets.",
+        notes="Security appliances are retained for inventory context but never receive backup or config commands.",
     ),
     DriverRuntimeProfile(
         vendor="Generic",
@@ -201,8 +242,11 @@ DRIVER_NAME_TO_FAMILY: dict[str, DeviceFamily] = {
     "HPComwareDriver": DeviceFamily.hpe_comware,
     "HPEProCurveDriver": DeviceFamily.hpe_procurve,
     "DellPowerConnectDriver": DeviceFamily.dell_os,
+    "QtechQswDriver": DeviceFamily.qtech,
     "EltexMESDriver": DeviceFamily.eltex,
     "BulatBSDriver": DeviceFamily.bulat,
+    "LimitedWebInventoryDriver": DeviceFamily.limited_web,
+    "NonSwitchInventoryDriver": DeviceFamily.non_switch,
     "GenericSSHDriver": DeviceFamily.generic_ssh,
     "ReadOnlyICMPDriver": DeviceFamily.icmp,
 }
@@ -273,6 +317,19 @@ class DriverCapabilityMatrix:
         driver_name: str | None,
         family: str | DeviceFamily | None,
     ) -> DriverRuntimeProfile:
+        text = f"{vendor} {model or ''} {platform or ''}"
+        normalized_text = normalize(text)
+        if "icmp" in normalized_text:
+            return self.get_profile(DeviceFamily.icmp) or UNSUPPORTED_PROFILE
+        if "unknown product" in normalized_text or "unknown snmp product" in normalized_text:
+            return UNSUPPORTED_PROFILE
+        if "securitycode" in normalized_text or "continent" in normalized_text:
+            return self.get_profile(DeviceFamily.non_switch) or UNSUPPORTED_PROFILE
+        if "des1100" in normalized_text or "des-1100" in normalized_text:
+            return self.get_profile(DeviceFamily.limited_web) or UNSUPPORTED_PROFILE
+        if "generic" in normalized_text:
+            generic = self.get_profile(DeviceFamily.generic_ssh)
+            return generic if generic is not None else UNSUPPORTED_PROFILE
         if family is not None:
             profile = self.get_profile(family)
             if profile is not None:
@@ -281,26 +338,9 @@ class DriverCapabilityMatrix:
             profile = self.get_profile(DRIVER_NAME_TO_FAMILY[driver_name or ""])
             if profile is not None:
                 return profile
-        text = f"{vendor} {model or ''} {platform or ''}"
-        normalized_text = normalize(text)
-        if "icmp" in normalized_text:
-            return self.get_profile(DeviceFamily.icmp) or UNSUPPORTED_PROFILE
-        if "unknown product" in normalized_text or "unknown snmp product" in normalized_text:
-            return UNSUPPORTED_PROFILE
-        if "generic" in normalized_text:
-            generic = self.get_profile(DeviceFamily.generic_ssh)
-            return generic if generic is not None else UNSUPPORTED_PROFILE
         for profile in self.profiles:
             if matches_pattern(profile.model_pattern, vendor, model) or matches_pattern(profile.platform_pattern, platform):
                 return profile
-        if normalize(vendor) in {"cisco"}:
-            return self.get_profile(DeviceFamily.cisco_ios) or UNSUPPORTED_PROFILE
-        if normalize(vendor) in {"huawei"}:
-            return self.get_profile(DeviceFamily.huawei_vrp) or UNSUPPORTED_PROFILE
-        if normalize(vendor) in {"hpe", "hp", "3com"}:
-            return self.get_profile(DeviceFamily.hpe_comware) or UNSUPPORTED_PROFILE
-        if normalize(vendor) in {"dell"}:
-            return self.get_profile(DeviceFamily.dell_os) or UNSUPPORTED_PROFILE
         return UNSUPPORTED_PROFILE
 
     def _warnings_for(self, profile: DriverRuntimeProfile) -> list[str]:
@@ -309,6 +349,12 @@ class DriverCapabilityMatrix:
             warnings.append("Generic SSH cannot perform destructive apply until explicitly certified.")
         if profile.family in {DeviceFamily.bulat, DeviceFamily.eltex}:
             warnings.append(f"{profile.family.value} config apply is blocked until confirmed templates and lab certification exist.")
+        if profile.family == DeviceFamily.qtech:
+            warnings.append("QTECH config apply is blocked until explicit templates and lab certification exist.")
+        if profile.family == DeviceFamily.limited_web:
+            warnings.append("Limited web/unmanaged devices are inventory-only and cannot run CLI backup or config operations.")
+        if profile.family == DeviceFamily.non_switch:
+            warnings.append("Non-switch/security appliance records are inventory-only and cannot run switch CLI operations.")
         if profile.family == DeviceFamily.icmp:
             warnings.append("ICMP-only devices are health/readiness only and cannot run config operations.")
         if profile.family == DeviceFamily.unknown:

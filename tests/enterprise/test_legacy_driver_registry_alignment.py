@@ -61,10 +61,10 @@ def test_legacy_registry_fails_closed_for_unknown_icmp_and_generic_profiles() ->
         assert driver_for(dev).name == "unsupported_cli"
 
 
-def test_legacy_registry_keeps_non_matrix_qtech_planning_without_config_apply_runtime() -> None:
+def test_legacy_registry_keeps_qtech_planning_without_config_apply_runtime() -> None:
     dev = device("QTECH", "QSW-4610-52T-AC")
     decision = runtime_decision_for_device(dev)
     driver = driver_for(dev)
 
-    assert decision.family == DeviceFamily.unknown
+    assert decision.family == DeviceFamily.qtech
     assert driver.name == "qtech_qsw"

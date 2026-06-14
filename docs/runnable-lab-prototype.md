@@ -4,6 +4,8 @@ The runnable lab prototype is now Excel-first. It is designed for operators who 
 
 This mode does not enable production apply, does not add a generic `/apply`, and does not add a destructive `/run`.
 
+Use the installed `switchfleet` command for the primary local workflow. When running directly from a source checkout, `python scripts/excel_lab.py` remains available as a compatibility form.
+
 ## Excel Inventory
 
 The Excel file is the primary lab input. Required columns:
@@ -18,6 +20,8 @@ The Excel file is the primary lab input. Required columns:
 - `Contact`
 
 Rows with empty device data or explicit service rows are ignored. Unknown or ambiguous vendor/model rows fail closed through the existing driver runtime matrix.
+
+The repository includes `examples/lab/inventory.example.xlsx` for local smoke tests. It uses private lab IP addresses and covers the main runtime classifications, including candidate switch families, QTECH, unmanaged D-Link, non-switch SecurityCode Continent, Unknown SNMP inventory-only records, and ICMP health-only records.
 
 ## State
 
@@ -39,7 +43,7 @@ Credential payloads are encrypted with `NCP_SECRET_KEY`. Plaintext secrets are n
 ## Doctor
 
 ```powershell
-python scripts/excel_lab.py inventory.xlsx doctor
+switchfleet inventory.xlsx doctor
 ```
 
 Doctor verifies that the Excel file is readable, required columns are present, file state is available, lab env vars are visible, Netmiko/Paramiko availability can be detected, and database/Alembic setup is not required.
@@ -47,8 +51,9 @@ Doctor verifies that the Excel file is readable, required columns are present, f
 ## List And Runtime
 
 ```powershell
-python scripts/excel_lab.py inventory.xlsx list
-python scripts/excel_lab.py inventory.xlsx check-runtime --device 10.13.4.67
+switchfleet inventory.xlsx summary
+switchfleet inventory.xlsx list
+switchfleet inventory.xlsx check-runtime --device 10.13.4.67
 ```
 
 Runtime decisions reuse `DriverCapabilityMatrix`, `VendorDriverContracts`, and `VendorCommandTemplateService`. Excel inventory is not certification. Unknown, ICMP, GenericSSH, Eltex, and Bulat remain blocked for config apply unless a future certified contract changes that.
@@ -57,7 +62,7 @@ Runtime decisions reuse `DriverCapabilityMatrix`, `VendorDriverContracts`, and `
 
 ```powershell
 $env:NCP_SECRET_KEY = "replace-with-long-random-lab-secret"
-python scripts/excel_lab.py inventory.xlsx add-credential --name lab-admin --username admin --password-prompt
+switchfleet inventory.xlsx add-credential --name lab-admin --username admin --password-prompt
 ```
 
 The password is read interactively or from `--password-env`; plaintext password arguments are intentionally unsupported.
@@ -66,7 +71,7 @@ The password is read interactively or from `--password-env`; plaintext password 
 
 ```powershell
 $env:NCP_LAB_DEVICE_ALLOWLIST = "10.13.4.67"
-python scripts/excel_lab.py inventory.xlsx backup --device 10.13.4.67 --credential lab-admin
+switchfleet inventory.xlsx backup --device 10.13.4.67 --credential lab-admin
 ```
 
 Backup is read-only. It uses the existing vendor contract read-only commands, decrypts the credential only after allowlist/runtime checks, sanitizes output, stores a local backup file, and writes an audit event. Unknown and ICMP devices are denied.
@@ -74,34 +79,34 @@ Backup is read-only. It uses the existing vendor contract read-only commands, de
 ## Dry Run
 
 ```powershell
-python scripts/excel_lab.py inventory.xlsx dry-run --device 10.13.4.67 --operation vlan_create --vlan-id 123 --name TEST_VLAN
+switchfleet inventory.xlsx dry-run --device 10.13.4.67 --operation vlan_create --vlan-id 123 --name TEST_VLAN
 ```
 
 Dry-run does not open SSH and does not decrypt credentials. It renders existing vendor templates, redacts secret commands, stores a dry-run record, and returns a command hash.
 
-## Certification
-
-```powershell
-python scripts/excel_lab.py inventory.xlsx certify --device 10.13.4.67 --capability vlan_create --credential lab-admin
-python scripts/excel_lab.py inventory.xlsx certification-report
-```
-
-Certification records lab-only evidence in local file state. It is not production certification and does not run commands by itself.
-
 ## Evaluate
 
 ```powershell
-python scripts/excel_lab.py inventory.xlsx evaluate-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
+switchfleet inventory.xlsx evaluate-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
 ```
 
-Evaluate does not open SSH and does not decrypt credentials. It checks allowlist, credential reference, sanitized backup, lab certification record, dry-run hash, runtime decision, vendor contract, and lock conflicts.
+Evaluate does not open SSH and does not decrypt credentials. It checks allowlist, credential reference, fresh sanitized backup, lab certification record, dry-run hash for the same device and operation, runtime decision, vendor contract, and lock conflicts.
+
+## Certification
+
+```powershell
+switchfleet inventory.xlsx certify --device 10.13.4.67 --capability vlan_create --credential lab-admin
+switchfleet inventory.xlsx certification-report
+```
+
+Certification records lab-only evidence in local file state. It is not production certification and does not run commands by itself. Config capability certification requires a usable credential reference, allowlisted device, fresh sanitized backup, and stored dry-run for that device/capability.
 
 ## Execute
 
 Fake/default-safe execution remains available for local verification:
 
 ```powershell
-python scripts/excel_lab.py inventory.xlsx execute-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
+switchfleet inventory.xlsx execute-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
 ```
 
 Real lab execution requires explicit lab flags and `--real-lab`:
@@ -110,7 +115,7 @@ Real lab execution requires explicit lab flags and `--real-lab`:
 $env:NCP_ALLOW_REAL_DEVICE_APPLY = "true"
 $env:NCP_LAB_REAL_APPLY_ENABLED = "true"
 $env:NCP_PRODUCTION_REAL_APPLY_ENABLED = "false"
-python scripts/excel_lab.py inventory.xlsx execute-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run> --real-lab
+switchfleet inventory.xlsx execute-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run> --real-lab
 ```
 
 Credential decrypt and transport creation happen only after the file-mode safety decision allows the request.
@@ -118,7 +123,7 @@ Credential decrypt and transport creation happen only after the file-mode safety
 ## Audit
 
 ```powershell
-python scripts/excel_lab.py inventory.xlsx audit-tail --limit 20
+switchfleet inventory.xlsx audit-tail --limit 20
 ```
 
 Audit payloads are JSONL and sanitized.
