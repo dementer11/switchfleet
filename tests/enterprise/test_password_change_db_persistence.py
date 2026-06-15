@@ -25,9 +25,9 @@ def _payload(secret: str | None = None) -> dict[str, object]:
     return {
         "requested_by": "sec",
         "devices": [
-            {"ip_address": "10.20.0.1", "vendor": "Cisco", "model": "Cat2960-48"},
-            {"ip_address": "10.20.0.2", "vendor": "Huawei", "model": "S5735"},
-            {"ip_address": "10.20.0.3", "vendor": "HPE", "model": "HPE 1910-24G"},
+            {"ip_address": "192.0.2.1", "vendor": "Cisco", "model": "Cat2960-48"},
+            {"ip_address": "192.0.2.2", "vendor": "Huawei", "model": "S5735"},
+            {"ip_address": "192.0.2.3", "vendor": "HPE", "model": "HPE 1910-24G"},
         ],
         "username": "admin",
         "new_password": secret or _secret(),

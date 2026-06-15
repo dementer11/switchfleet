@@ -70,7 +70,7 @@ Start with:
 switchfleet inventory.xlsx doctor
 switchfleet inventory.xlsx summary
 switchfleet inventory.xlsx list
-switchfleet inventory.xlsx check-runtime --device 10.13.4.67
+switchfleet inventory.xlsx check-runtime --device 192.0.2.67
 ```
 
 For a checkout smoke test, use the included private-address lab sample:
@@ -92,11 +92,11 @@ switchfleet inventory.xlsx add-credential --name lab-admin --username admin --pa
 Run the lab flow:
 
 ```powershell
-$env:NCP_LAB_DEVICE_ALLOWLIST = "10.13.4.67"
-switchfleet inventory.xlsx backup --device 10.13.4.67 --credential lab-admin
-switchfleet inventory.xlsx dry-run --device 10.13.4.67 --operation vlan_create --vlan-id 123 --name TEST_VLAN
-switchfleet inventory.xlsx evaluate-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
-switchfleet inventory.xlsx certify --device 10.13.4.67 --capability vlan_create --credential lab-admin
+$env:NCP_LAB_DEVICE_ALLOWLIST = "192.0.2.67"
+switchfleet inventory.xlsx backup --device 192.0.2.67 --credential lab-admin
+switchfleet inventory.xlsx dry-run --device 192.0.2.67 --operation vlan_create --vlan-id 123 --name TEST_VLAN
+switchfleet inventory.xlsx evaluate-apply --device 192.0.2.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
+switchfleet inventory.xlsx certify --device 192.0.2.67 --capability vlan_create --credential lab-admin
 ```
 
 Certification is lab-only and scoped: config capabilities can be certified only for allowlisted devices with a usable credential reference, fresh sanitized backup, stored dry-run for that device/capability, and a supported vendor template. Unsupported, ICMP, non-switch, QTECH, Eltex, and Bulat config apply remain blocked until explicit certified templates/policy exist.
@@ -107,7 +107,7 @@ Real lab execution remains explicit and lab-only:
 $env:NCP_ALLOW_REAL_DEVICE_APPLY = "true"
 $env:NCP_LAB_REAL_APPLY_ENABLED = "true"
 $env:NCP_PRODUCTION_REAL_APPLY_ENABLED = "false"
-switchfleet inventory.xlsx execute-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run> --real-lab
+switchfleet inventory.xlsx execute-apply --device 192.0.2.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run> --real-lab
 ```
 
 Excel lab state is stored under `.switchfleet_lab/` by default. Credential payloads are encrypted, backups are sanitized, audit events are JSONL, and production apply remains disabled. The DB-backed FastAPI platform is still available as enterprise mode below.
@@ -124,12 +124,12 @@ $body = @{
   filename = "inventory.json"
   dry_run = $true
   items = @(
-    @{ ip = "10.0.0.1"; hostname = "sw-core-1"; vendor = "Huawei"; model = "S5735"; site = "HQ"; tags = @("core") }
+    @{ ip = "192.0.2.1"; hostname = "sw-core-1"; vendor = "Huawei"; model = "S5735"; site = "HQ"; tags = @("core") }
   )
 } | ConvertTo-Json -Depth 6
 
 Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/inventory/import" `
+  -Uri "http://localhost:8000/api/v1/inventory/import" `
   -Headers @{ "X-Actor" = "netadmin"; "X-Roles" = "network_admin" } `
   -ContentType "application/json" `
   -Body $body
@@ -151,13 +151,13 @@ $body = @{
 } | ConvertTo-Json -Depth 6
 
 $job = Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/config-backups/jobs" `
+  -Uri "http://localhost:8000/api/v1/config-backups/jobs" `
   -Headers @{ "X-Actor" = "netadmin"; "X-Roles" = "network_admin" } `
   -ContentType "application/json" `
   -Body $body
 
 Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/config-backups/jobs/$($job.job.id)/run" `
+  -Uri "http://localhost:8000/api/v1/config-backups/jobs/$($job.job.id)/run" `
   -Headers @{ "X-Actor" = "netop"; "X-Roles" = "network_operator" }
 ```
 
@@ -180,7 +180,7 @@ $body = @{
 } | ConvertTo-Json -Depth 6
 
 Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/vlan-workflows/requests" `
+  -Uri "http://localhost:8000/api/v1/vlan-workflows/requests" `
   -Headers @{ "X-Actor" = "netadmin"; "X-Roles" = "network_admin" } `
   -ContentType "application/json" `
   -Body $body
@@ -210,7 +210,7 @@ $body = @{
 } | ConvertTo-Json -Depth 6
 
 Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/change-executions" `
+  -Uri "http://localhost:8000/api/v1/change-executions" `
   -Headers @{ "X-Actor" = "netadmin"; "X-Roles" = "network_admin" } `
   -ContentType "application/json" `
   -Body $body
@@ -302,13 +302,13 @@ The primary runnable lab prototype is Excel-first and file-based:
 switchfleet inventory.xlsx doctor
 switchfleet inventory.xlsx summary
 switchfleet inventory.xlsx list
-switchfleet inventory.xlsx check-runtime --device 10.13.4.67
+switchfleet inventory.xlsx check-runtime --device 192.0.2.67
 switchfleet inventory.xlsx add-credential --name lab-admin --username admin --password-prompt
-switchfleet inventory.xlsx backup --device 10.13.4.67 --credential lab-admin
-switchfleet inventory.xlsx dry-run --device 10.13.4.67 --operation vlan_create --vlan-id 123 --name TEST_VLAN
-switchfleet inventory.xlsx evaluate-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
-switchfleet inventory.xlsx certify --device 10.13.4.67 --capability vlan_create --credential lab-admin
-switchfleet inventory.xlsx execute-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run> --real-lab
+switchfleet inventory.xlsx backup --device 192.0.2.67 --credential lab-admin
+switchfleet inventory.xlsx dry-run --device 192.0.2.67 --operation vlan_create --vlan-id 123 --name TEST_VLAN
+switchfleet inventory.xlsx evaluate-apply --device 192.0.2.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
+switchfleet inventory.xlsx certify --device 192.0.2.67 --capability vlan_create --credential lab-admin
+switchfleet inventory.xlsx execute-apply --device 192.0.2.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run> --real-lab
 ```
 
 The older `scripts/lab_prototype.py` helper is DB-backed enterprise prototype mode. Use it only when you intentionally want SQLAlchemy/PostgreSQL-backed prototype records:
@@ -371,7 +371,7 @@ uvicorn app.main:app --reload
 Health check:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
+Invoke-RestMethod http://localhost:8000/api/v1/health
 ```
 
 ## Enterprise API Workflow
@@ -382,13 +382,13 @@ Create a VLAN change job. This generates a masked dry-run, creates per-device ta
 $body = @{
   requested_by = "alice"
   devices = @(
-    @{ ip_address = "10.0.0.1"; vendor = "Huawei"; model = "S5735" }
+    @{ ip_address = "192.0.2.1"; vendor = "Huawei"; model = "S5735" }
   )
   intent = @{ vlan_id = 100; name = "USERS"; state = "present" }
 } | ConvertTo-Json -Depth 5
 
 Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/jobs/vlan-change" `
+  -Uri "http://localhost:8000/api/v1/jobs/vlan-change" `
   -Headers @{ "X-Actor" = "alice"; "X-Roles" = "network_admin" } `
   -ContentType "application/json" `
   -Body $body
@@ -398,11 +398,11 @@ Approve and run a job:
 
 ```powershell
 Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/jobs/<job_id>/approve" `
+  -Uri "http://localhost:8000/api/v1/jobs/<job_id>/approve" `
   -Headers @{ "X-Actor" = "lead"; "X-Roles" = "network_admin" }
 
 Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/jobs/<job_id>/run" `
+  -Uri "http://localhost:8000/api/v1/jobs/<job_id>/run" `
   -Headers @{ "X-Actor" = "lead"; "X-Roles" = "network_admin" }
 ```
 
@@ -414,15 +414,15 @@ Create a password change job:
 $body = @{
   requested_by = "sec"
   devices = @(
-    @{ ip_address = "10.0.0.1"; vendor = "Cisco"; model = "Cat2960-48" }
-    @{ ip_address = "10.0.0.2"; vendor = "Huawei"; model = "S5735" }
+    @{ ip_address = "192.0.2.1"; vendor = "Cisco"; model = "Cat2960-48" }
+    @{ ip_address = "192.0.2.2"; vendor = "Huawei"; model = "S5735" }
   )
   username = "admin"
   new_password = $env:NCP_NEW_PASSWORD
 } | ConvertTo-Json -Depth 5
 
 Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/jobs/password-change" `
+  -Uri "http://localhost:8000/api/v1/jobs/password-change" `
   -Headers @{ "X-Actor" = "sec"; "X-Roles" = "security_admin" } `
   -ContentType "application/json" `
   -Body $body
@@ -432,11 +432,11 @@ Password jobs cannot be run through the generic `/run` endpoint. They must be ap
 
 ```powershell
 Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/jobs/<job_id>/approve" `
+  -Uri "http://localhost:8000/api/v1/jobs/<job_id>/approve" `
   -Headers @{ "X-Actor" = "sec"; "X-Roles" = "security_admin" }
 
 Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/jobs/<job_id>/run-next-batch" `
+  -Uri "http://localhost:8000/api/v1/jobs/<job_id>/run-next-batch" `
   -Headers @{ "X-Actor" = "sec"; "X-Roles" = "security_admin" }
 ```
 
@@ -479,7 +479,7 @@ Create credentials:
 
 ```powershell
 Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/credentials" `
+  -Uri "http://localhost:8000/api/v1/credentials" `
   -Headers @{ "X-Actor" = "sec"; "X-Roles" = "security_admin" } `
   -ContentType "application/json" `
   -Body (@{ name = "core"; username = "admin"; password = $env:NCP_CREDENTIAL_PASSWORD } | ConvertTo-Json)

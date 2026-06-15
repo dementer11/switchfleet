@@ -13,7 +13,7 @@ def _create_job(client: TestClient) -> str:
         headers=HEADERS,
         json={
             "requested_by": "netadmin",
-            "devices": [{"ip_address": "10.0.0.1", "vendor": "Cisco", "model": "Cat2960-48"}],
+            "devices": [{"ip_address": "192.0.2.1", "vendor": "Cisco", "model": "Cat2960-48"}],
             "intent": {"vlan_id": 100, "name": "USERS", "state": "present"},
         },
     )

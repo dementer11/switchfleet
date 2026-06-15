@@ -16,7 +16,7 @@ from netops_orchestrator.runtime_compat import (
 
 
 def device(vendor: str, model: str) -> Device:
-    return Device(label="sw1", ip_address="10.0.0.1", vendor=vendor, model=model)
+    return Device(label="sw1", ip_address="192.0.2.1", vendor=vendor, model=model)
 
 
 def test_runtime_compat_maps_known_devices_and_fails_closed_unknowns() -> None:
@@ -39,7 +39,7 @@ def test_runtime_compat_metadata_cannot_override_explicit_unknown_or_icmp_fail_c
     huawei_unknown = runtime_decision_for_device(
         Device(
             label="bad",
-            ip_address="10.0.0.9",
+            ip_address="192.0.2.9",
             vendor="Huawei",
             model="Unknown Product",
             metadata={"family": "huawei_vrp", "driver_name": "HuaweiVRPDriver"},
@@ -48,7 +48,7 @@ def test_runtime_compat_metadata_cannot_override_explicit_unknown_or_icmp_fail_c
     icmp = runtime_decision_for_device(
         Device(
             label="icmp",
-            ip_address="10.0.0.10",
+            ip_address="192.0.2.10",
             vendor="Cisco",
             model="ICMP-only",
             metadata={"family": "cisco_ios", "driver_name": "CiscoIOSDriver"},
@@ -65,7 +65,7 @@ def test_runtime_compat_generic_icmp_eltex_and_bulat_are_not_config_capable() ->
     generic = runtime_decision_for_device(
         Device(
             label="generic",
-            ip_address="10.0.0.2",
+            ip_address="192.0.2.2",
             vendor="GenericSSH",
             model="Manual",
             metadata={"driver_name": "GenericSSHDriver"},

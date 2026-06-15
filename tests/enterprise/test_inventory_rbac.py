@@ -14,7 +14,7 @@ def test_inventory_rbac_read_manage_and_discovery_permissions() -> None:
     payload = {
         "source_type": "api",
         "dry_run": False,
-        "items": [{"ip": "10.5.0.1", "hostname": "sw1", "vendor": "Cisco", "model": "Cat2960-48"}],
+        "items": [{"ip": "192.0.2.1", "hostname": "sw1", "vendor": "Cisco", "model": "Cat2960-48"}],
     }
 
     assert client.get("/api/v1/inventory/devices", headers=viewer).status_code == 200

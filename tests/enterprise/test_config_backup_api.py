@@ -15,7 +15,7 @@ def _device() -> str:
     try:
         device, _created = DeviceInventoryRepository(session).upsert_device(
             {
-                "management_ip": "10.64.0.1",
+                "management_ip": "192.0.2.1",
                 "hostname": "api-sw",
                 "vendor": "Cisco",
                 "model": "Cat2960-48",

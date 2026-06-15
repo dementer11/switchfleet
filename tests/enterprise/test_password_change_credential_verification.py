@@ -28,7 +28,7 @@ def _secret() -> str:
 def _payload(secret: str | None = None) -> dict[str, object]:
     return {
         "requested_by": "sec",
-        "devices": [{"ip_address": "10.60.0.1", "vendor": "Cisco", "model": "Cat2960-48"}],
+        "devices": [{"ip_address": "192.0.2.1", "vendor": "Cisco", "model": "Cat2960-48"}],
         "username": "admin",
         "new_password": secret or _secret(),
     }
@@ -37,7 +37,7 @@ def _payload(secret: str | None = None) -> dict[str, object]:
 def test_credential_verification_blocks_real_transport_when_real_apply_disabled() -> None:
     session = SessionLocal()
     device = DeviceRepository(session).create_or_update_from_input(
-        DeviceInput(ip_address="10.60.0.10", vendor="Cisco", model="Cat2960-48")
+        DeviceInput(ip_address="192.0.2.10", vendor="Cisco", model="Cat2960-48")
     )
     verifier = CredentialVerificationService(Settings(environment="test", allow_real_device_apply=False))
     secret = _secret()
@@ -49,7 +49,7 @@ def test_credential_verification_blocks_real_transport_when_real_apply_disabled(
 def test_credential_verification_can_simulate_failure_for_lab_regression() -> None:
     session = SessionLocal()
     device = DeviceRepository(session).create_or_update_from_input(
-        DeviceInput(ip_address="10.60.0.11", vendor="Cisco", model="Cat2960-48")
+        DeviceInput(ip_address="192.0.2.11", vendor="Cisco", model="Cat2960-48")
     )
 
     result = CredentialVerificationService(Settings(environment="test")).verify_new_credential(

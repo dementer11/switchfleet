@@ -18,7 +18,7 @@ def test_config_backup_safety_no_config_transport_methods_are_called(monkeypatch
     session = SessionLocal()
     device, _created = DeviceInventoryRepository(session).upsert_device(
         {
-            "management_ip": "10.66.0.1",
+            "management_ip": "192.0.2.1",
             "hostname": "safe-backup",
             "vendor": "Cisco",
             "model": "Cat2960-48",

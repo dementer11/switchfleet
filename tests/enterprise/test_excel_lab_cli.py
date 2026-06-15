@@ -107,8 +107,8 @@ def test_excel_lab_cli_summary_and_check_runtime_show_real_inventory_status(tmp_
     inventory = write_inventory(
         tmp_path / "inventory.xlsx",
         [
-            ["Active", "qtech-lab", "QSW-4610", "10.13.4.67", "QTECH", "Switch", "Lab", "NetOps"],
-            ["Active", "continent", "Continent-500", "10.13.4.68", "SecurityCode", "Security Appliance", "Lab", "SecOps"],
+            ["Active", "qtech-lab", "QSW-4610", "192.0.2.67", "QTECH", "Switch", "Lab", "NetOps"],
+            ["Active", "continent", "Continent-500", "192.0.2.68", "SecurityCode", "Security Appliance", "Lab", "SecOps"],
         ],
     )
     summary = subprocess.run(

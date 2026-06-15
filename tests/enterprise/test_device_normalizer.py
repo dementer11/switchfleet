@@ -34,7 +34,7 @@ def test_device_normalizer_known_families(
 ) -> None:
     normalized = normalize_inventory_record(
         {
-            "ip": "10.0.0.1",
+            "ip": "192.0.2.1",
             "hostname": "sw",
             "vendor": vendor,
             "model": model,

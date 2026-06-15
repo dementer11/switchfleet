@@ -27,7 +27,7 @@ SECURITY_HEADERS = {"X-Actor": "sec", "X-Roles": "security_admin"}
 def _vlan_payload(vendor: str = "Cisco", model: str = "Cat2960-48") -> dict[str, object]:
     return {
         "requested_by": "netadmin",
-        "devices": [{"ip_address": "10.0.0.1", "vendor": vendor, "model": model}],
+        "devices": [{"ip_address": "192.0.2.1", "vendor": vendor, "model": model}],
         "intent": {"vlan_id": 100, "name": "USERS", "state": "present"},
     }
 

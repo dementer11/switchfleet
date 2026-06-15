@@ -17,7 +17,7 @@ def test_lab_prototype_import_devices_and_dry_run(tmp_path, capsys) -> None:
         """
 devices:
   - hostname: sw1-lab
-    management_ip: 192.168.88.11
+    management_ip: 198.51.100.11
     vendor: Cisco
     model: Catalyst 2960
     platform: ios
@@ -47,7 +47,7 @@ def test_lab_prototype_import_devices_refuses_non_lab_tags(tmp_path) -> None:
         """
 devices:
   - hostname: prod-sw
-    management_ip: 192.168.88.50
+    management_ip: 198.51.100.50
     vendor: Cisco
     model: Catalyst 2960
     tags:

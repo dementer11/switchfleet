@@ -11,7 +11,7 @@ from netops_orchestrator.transports.ssh_paramiko import ParamikoCliTransport, Ss
 
 
 def device(vendor: str, model: str) -> Device:
-    return Device(label="sw1", ip_address="10.0.0.1", vendor=vendor, model=model)
+    return Device(label="sw1", ip_address="192.0.2.1", vendor=vendor, model=model)
 
 
 CREDS = SshCredentials(username="netops", password="secret")

@@ -41,8 +41,8 @@ def test_driver_runtime_summary_counts_and_zero_real_apply_certification() -> No
 def test_driver_runtime_service_maps_inventory_device_and_old_driver_name() -> None:
     session = SessionLocal()
     device = Device(
-        ip_address="10.90.0.10",
-        management_ip="10.90.0.10",
+        ip_address="192.0.2.10",
+        management_ip="192.0.2.10",
         hostname="sw1",
         vendor="Cisco",
         model="Catalyst 2960",

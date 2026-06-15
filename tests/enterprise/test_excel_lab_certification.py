@@ -98,14 +98,14 @@ def test_excel_lab_certify_rejects_qtech_config_apply(tmp_path: Path, monkeypatc
     repo_root = Path(__file__).resolve().parents[2]
     inventory = write_inventory(
         tmp_path / "inventory.xlsx",
-        [["Active", "qtech", "QSW-4610", "10.13.4.72", "QTECH", "Switch", "Lab", "NetOps"]],
+        [["Active", "qtech", "QSW-4610", "192.0.2.72", "QTECH", "Switch", "Lab", "NetOps"]],
     )
     state = FileLabState(tmp_path / ".switchfleet_lab")
     monkeypatch.setenv("NCP_SECRET_KEY", "excel-lab-secret-key")
     FileCredentialVault(state).create_or_update(name="lab-admin", username="admin", secret="VaultSecret")
     env = os.environ.copy()
     env["NCP_SECRET_KEY"] = "excel-lab-secret-key"
-    env["NCP_LAB_DEVICE_ALLOWLIST"] = "10.13.4.72"
+    env["NCP_LAB_DEVICE_ALLOWLIST"] = "192.0.2.72"
 
     result = subprocess.run(
         [

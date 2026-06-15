@@ -31,7 +31,7 @@ The Excel example uses only private lab IP addresses and includes supported, can
 Set the lab allowlist to device IDs, hostnames, labels, or management IPs before backup or apply evaluation:
 
 ```powershell
-$env:NCP_LAB_DEVICE_ALLOWLIST = "huawei-s5735,10.13.4.10"
+$env:NCP_LAB_DEVICE_ALLOWLIST = "huawei-s5735,192.0.2.10"
 ```
 
 Keep production apply disabled:
@@ -51,5 +51,5 @@ python scripts/lab_prototype.py import-devices examples/lab/devices.example.yaml
 Then set the lab allowlist to device IDs, hostnames, or management IPs returned by the DB import:
 
 ```powershell
-$env:NCP_LAB_DEVICE_ALLOWLIST = "sw1-lab,sw2-lab,192.168.88.11,192.168.88.12"
+$env:NCP_LAB_DEVICE_ALLOWLIST = "sw1-lab,sw2-lab,198.51.100.11,198.51.100.12"
 ```

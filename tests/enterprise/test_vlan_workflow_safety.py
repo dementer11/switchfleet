@@ -33,7 +33,7 @@ def test_vlan_workflow_never_uses_transport_config_methods(monkeypatch) -> None:
     session = SessionLocal()
     device, _created = DeviceInventoryRepository(session).upsert_device(
         {
-            "management_ip": "10.77.0.1",
+            "management_ip": "192.0.2.1",
             "hostname": "safe-vlan",
             "vendor": "Cisco",
             "model": "Cat2960-48",

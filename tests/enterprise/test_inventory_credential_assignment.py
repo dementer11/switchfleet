@@ -20,14 +20,14 @@ def test_inventory_credential_assignment_found_and_missing_are_safe() -> None:
             strict=False,
             items=[
                 {
-                    "ip": "10.2.0.1",
+                    "ip": "192.0.2.1",
                     "hostname": "sw1",
                     "vendor": "Cisco",
                     "model": "Cat2960-48",
                     "credential_name": "core-ssh",
                 },
                 {
-                    "ip": "10.2.0.2",
+                    "ip": "192.0.2.2",
                     "hostname": "sw2",
                     "vendor": "Cisco",
                     "model": "Cat2960-48",
@@ -56,7 +56,7 @@ def test_inventory_strict_mode_marks_missing_credential_invalid() -> None:
             strict=True,
             items=[
                 {
-                    "ip": "10.2.1.1",
+                    "ip": "192.0.2.1",
                     "hostname": "sw1",
                     "vendor": "Cisco",
                     "model": "Cat2960-48",

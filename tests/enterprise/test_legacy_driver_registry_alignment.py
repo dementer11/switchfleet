@@ -7,7 +7,7 @@ from netops_orchestrator.runtime_compat import runtime_decision_for_device
 
 
 def device(vendor: str, model: str) -> Device:
-    return Device(label="sw1", ip_address="10.0.0.1", vendor=vendor, model=model)
+    return Device(label="sw1", ip_address="192.0.2.1", vendor=vendor, model=model)
 
 
 def test_legacy_registry_aligns_with_matrix_for_known_supported_models() -> None:
@@ -36,21 +36,21 @@ def test_legacy_registry_fails_closed_for_unknown_icmp_and_generic_profiles() ->
         device("ICMP-only", "ICMP-only"),
         Device(
             label="bad",
-            ip_address="10.0.0.3",
+            ip_address="192.0.2.3",
             vendor="Huawei",
             model="Unknown Product",
             metadata={"family": "huawei_vrp", "driver_name": "HuaweiVRPDriver"},
         ),
         Device(
             label="icmp",
-            ip_address="10.0.0.4",
+            ip_address="192.0.2.4",
             vendor="Cisco",
             model="ICMP-only",
             metadata={"family": "cisco_ios", "driver_name": "CiscoIOSDriver"},
         ),
         Device(
             label="generic",
-            ip_address="10.0.0.2",
+            ip_address="192.0.2.2",
             vendor="GenericSSH",
             model="Manual",
             metadata={"driver_name": "GenericSSHDriver"},

@@ -19,7 +19,7 @@ def test_executor_persists_statuses_backups_audit_and_output() -> None:
         headers=HEADERS,
         json={
             "requested_by": "netadmin",
-            "devices": [{"ip_address": "10.0.0.1", "vendor": "Cisco", "model": "Cat2960-48"}],
+            "devices": [{"ip_address": "192.0.2.1", "vendor": "Cisco", "model": "Cat2960-48"}],
             "intent": {"vlan_id": 100, "name": "USERS", "state": "present"},
         },
     )
@@ -50,7 +50,7 @@ def test_executor_keeps_safety_gates_with_database_state() -> None:
         headers=HEADERS,
         json={
             "requested_by": "netadmin",
-            "devices": [{"ip_address": "10.0.0.1", "vendor": "Cisco", "model": "Cat2960-48"}],
+            "devices": [{"ip_address": "192.0.2.1", "vendor": "Cisco", "model": "Cat2960-48"}],
             "intent": {"vlan_id": 100, "name": "USERS", "state": "present"},
         },
     ).json()["job_id"]

@@ -9,7 +9,7 @@ from netops_orchestrator.transports.ssh_paramiko import ParamikoCliTransport, Ss
 
 
 def device(vendor: str, model: str) -> Device:
-    return Device(label="sw1", ip_address="10.0.0.1", vendor=vendor, model=model)
+    return Device(label="sw1", ip_address="192.0.2.1", vendor=vendor, model=model)
 
 
 class TransportFactoryTests(unittest.TestCase):
@@ -45,7 +45,7 @@ class TransportFactoryTests(unittest.TestCase):
         self.assertIsInstance(transport, ParamikoCliTransport)
 
     def test_netmiko_groups_contiguous_config_steps(self):
-        transport = NetmikoCliTransport("10.0.0.1", SshCredentials(username="u", password="p"), "cisco_ios")
+        transport = NetmikoCliTransport("192.0.2.1", SshCredentials(username="u", password="p"), "cisco_ios")
         fake_connection = FakeNetmikoConnection()
         transport._connection = fake_connection
 

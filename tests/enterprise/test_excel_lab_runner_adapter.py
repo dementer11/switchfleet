@@ -15,7 +15,7 @@ from tests.enterprise.excel_lab_helpers import write_inventory
 
 def test_excel_lab_apply_fake_executes_only_after_allowed(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("NCP_SECRET_KEY", "excel-lab-secret-key")
-    monkeypatch.setenv("NCP_LAB_DEVICE_ALLOWLIST", "10.13.4.67")
+    monkeypatch.setenv("NCP_LAB_DEVICE_ALLOWLIST", "192.0.2.67")
     get_settings.cache_clear()
     device = load_excel_inventory(write_inventory(tmp_path / "inventory.xlsx"))[0]
     state = FileLabState(tmp_path / ".switchfleet_lab")
@@ -51,7 +51,7 @@ def test_excel_lab_apply_fake_executes_only_after_allowed(tmp_path: Path, monkey
 
 def test_excel_lab_fake_password_execute_writes_only_redacted_state(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("NCP_SECRET_KEY", "excel-lab-secret-key")
-    monkeypatch.setenv("NCP_LAB_DEVICE_ALLOWLIST", "10.13.4.67")
+    monkeypatch.setenv("NCP_LAB_DEVICE_ALLOWLIST", "192.0.2.67")
     get_settings.cache_clear()
     device = load_excel_inventory(write_inventory(tmp_path / "inventory.xlsx"))[0]
     state = FileLabState(tmp_path / ".switchfleet_lab")
@@ -101,7 +101,7 @@ def test_excel_lab_fake_password_execute_writes_only_redacted_state(tmp_path: Pa
 
 def test_excel_lab_real_execute_requires_real_apply_evaluation_before_decrypt(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("NCP_SECRET_KEY", "excel-lab-secret-key")
-    monkeypatch.setenv("NCP_LAB_DEVICE_ALLOWLIST", "10.13.4.67")
+    monkeypatch.setenv("NCP_LAB_DEVICE_ALLOWLIST", "192.0.2.67")
     get_settings.cache_clear()
     device = load_excel_inventory(write_inventory(tmp_path / "inventory.xlsx"))[0]
     state = FileLabState(tmp_path / ".switchfleet_lab")
@@ -182,7 +182,7 @@ def test_excel_lab_apply_denied_does_not_decrypt_or_execute(tmp_path: Path, monk
 
 def test_excel_lab_apply_active_lock_between_evaluate_and_execute_blocks_before_decrypt(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("NCP_SECRET_KEY", "excel-lab-secret-key")
-    monkeypatch.setenv("NCP_LAB_DEVICE_ALLOWLIST", "10.13.4.67")
+    monkeypatch.setenv("NCP_LAB_DEVICE_ALLOWLIST", "192.0.2.67")
     monkeypatch.setenv("NCP_ALLOW_REAL_DEVICE_APPLY", "true")
     monkeypatch.setenv("NCP_LAB_REAL_APPLY_ENABLED", "true")
     monkeypatch.setenv("NCP_PRODUCTION_REAL_APPLY_ENABLED", "false")

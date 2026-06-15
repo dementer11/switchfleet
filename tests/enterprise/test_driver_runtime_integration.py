@@ -26,14 +26,14 @@ def test_existing_inventory_devices_map_to_runtime_decisions_without_workflow_ch
 def test_old_driver_names_map_or_fail_safely() -> None:
     session = SessionLocal()
     known = Device(
-        ip_address="10.92.0.10",
+        ip_address="192.0.2.10",
         vendor="Huawei",
         model="S5735",
         platform="vrp",
         driver_name="HuaweiVRPDriver",
     )
     unknown = Device(
-        ip_address="10.92.0.11",
+        ip_address="192.0.2.11",
         vendor="Mystery",
         model="MysteryBox",
         platform="",

@@ -16,7 +16,7 @@ def _secret() -> str:
 
 def _devices(count: int = 3) -> list[dict[str, str]]:
     return [
-        {"ip_address": f"10.10.0.{index}", "vendor": "Cisco", "model": "Cat2960-48"}
+        {"ip_address": f"192.0.2.{index}", "vendor": "Cisco", "model": "Cat2960-48"}
         for index in range(1, count + 1)
     ]
 

@@ -9,7 +9,7 @@ def test_vlan_workflow_repository_lifecycle() -> None:
     session = SessionLocal()
     device, _created = DeviceInventoryRepository(session).upsert_device(
         {
-            "management_ip": "10.70.0.1",
+            "management_ip": "192.0.2.1",
             "hostname": "repo-vlan",
             "vendor": "Cisco",
             "model": "Cat2960-48",

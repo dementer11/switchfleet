@@ -17,7 +17,7 @@ def _request() -> str:
     session = SessionLocal()
     device, _created = DeviceInventoryRepository(session).upsert_device(
         {
-            "management_ip": "10.76.0.1",
+            "management_ip": "192.0.2.1",
             "hostname": "rbac-vlan",
             "vendor": "Cisco",
             "model": "Cat2960-48",

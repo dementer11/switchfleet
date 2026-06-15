@@ -14,7 +14,7 @@ def _inventory(tmp_path: Path, vendor: str, model: str) -> Path:
     path = tmp_path / "inventory.csv"
     path.write_text(
         "label,ip address,vendor,model\n"
-        f"sw1,10.0.0.1,{vendor},{model}\n",
+        f"sw1,192.0.2.1,{vendor},{model}\n",
         encoding="utf-8",
     )
     return path
@@ -86,8 +86,8 @@ def test_legacy_backup_unsupported_and_icmp_do_not_create_transport(
     inventory = tmp_path / "inventory.csv"
     inventory.write_text(
         "label,ip address,vendor,model\n"
-        "unknown,10.0.0.1,Huawei,Unknown Product\n"
-        "icmp,10.0.0.2,ICMP-only,ICMP-only\n",
+        "unknown,192.0.2.1,Huawei,Unknown Product\n"
+        "icmp,192.0.2.2,ICMP-only,ICMP-only\n",
         encoding="utf-8",
     )
 
@@ -117,5 +117,5 @@ def test_legacy_backup_unsupported_and_icmp_do_not_create_transport(
 
     output = capsys.readouterr().out
     assert exc.value.code == 1
-    assert "skipping 10.0.0.1: no backup commands" in output
-    assert "skipping 10.0.0.2: no backup commands" in output
+    assert "skipping 192.0.2.1: no backup commands" in output
+    assert "skipping 192.0.2.2: no backup commands" in output

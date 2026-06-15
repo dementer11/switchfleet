@@ -5,7 +5,7 @@ from app.services.backup_service import BackupService
 
 def _device_id(service: BackupService) -> str:
     device = DeviceRepository(service.session).create_or_update_from_input(
-        DeviceInput(ip_address="10.0.0.10", vendor="Cisco", model="Cat2960-48")
+        DeviceInput(ip_address="192.0.2.10", vendor="Cisco", model="Cat2960-48")
     )
     return str(device.id)
 

@@ -1,4 +1,5 @@
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *.pyo
 .pytest_cache/
@@ -9,6 +10,18 @@ venv/
 .switchfleet_lab/
 build/
 dist/
+wheelhouse/
 *.egg-info/
 backups/
+dry_runs/
+executions/
+reports/
+credentials.json
 *.log
+*.bak
+*.backup
+*.tmp
+*.local.*
+.env
+.env.*
+!.env.example

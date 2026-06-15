@@ -53,7 +53,7 @@ Doctor verifies that the Excel file is readable, required columns are present, f
 ```powershell
 switchfleet inventory.xlsx summary
 switchfleet inventory.xlsx list
-switchfleet inventory.xlsx check-runtime --device 10.13.4.67
+switchfleet inventory.xlsx check-runtime --device 192.0.2.67
 ```
 
 Runtime decisions reuse `DriverCapabilityMatrix`, `VendorDriverContracts`, and `VendorCommandTemplateService`. Excel inventory is not certification. Unknown, ICMP, GenericSSH, Eltex, and Bulat remain blocked for config apply unless a future certified contract changes that.
@@ -70,8 +70,8 @@ The password is read interactively or from `--password-env`; plaintext password 
 ## Backup
 
 ```powershell
-$env:NCP_LAB_DEVICE_ALLOWLIST = "10.13.4.67"
-switchfleet inventory.xlsx backup --device 10.13.4.67 --credential lab-admin
+$env:NCP_LAB_DEVICE_ALLOWLIST = "192.0.2.67"
+switchfleet inventory.xlsx backup --device 192.0.2.67 --credential lab-admin
 ```
 
 Backup is read-only. It uses the existing vendor contract read-only commands, decrypts the credential only after allowlist/runtime checks, sanitizes output, stores a local backup file, and writes an audit event. Unknown and ICMP devices are denied.
@@ -79,7 +79,7 @@ Backup is read-only. It uses the existing vendor contract read-only commands, de
 ## Dry Run
 
 ```powershell
-switchfleet inventory.xlsx dry-run --device 10.13.4.67 --operation vlan_create --vlan-id 123 --name TEST_VLAN
+switchfleet inventory.xlsx dry-run --device 192.0.2.67 --operation vlan_create --vlan-id 123 --name TEST_VLAN
 ```
 
 Dry-run does not open SSH and does not decrypt credentials. It renders existing vendor templates, redacts secret commands, stores a dry-run record, and returns a command hash.
@@ -87,7 +87,7 @@ Dry-run does not open SSH and does not decrypt credentials. It renders existing 
 ## Evaluate
 
 ```powershell
-switchfleet inventory.xlsx evaluate-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
+switchfleet inventory.xlsx evaluate-apply --device 192.0.2.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
 ```
 
 Evaluate does not open SSH and does not decrypt credentials. It checks allowlist, credential reference, fresh sanitized backup, lab certification record, dry-run hash for the same device and operation, runtime decision, vendor contract, and lock conflicts.
@@ -95,7 +95,7 @@ Evaluate does not open SSH and does not decrypt credentials. It checks allowlist
 ## Certification
 
 ```powershell
-switchfleet inventory.xlsx certify --device 10.13.4.67 --capability vlan_create --credential lab-admin
+switchfleet inventory.xlsx certify --device 192.0.2.67 --capability vlan_create --credential lab-admin
 switchfleet inventory.xlsx certification-report
 ```
 
@@ -106,7 +106,7 @@ Certification records lab-only evidence in local file state. It is not productio
 Fake/default-safe execution remains available for local verification:
 
 ```powershell
-switchfleet inventory.xlsx execute-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
+switchfleet inventory.xlsx execute-apply --device 192.0.2.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
 ```
 
 Real lab execution requires explicit lab flags and `--real-lab`:
@@ -115,7 +115,7 @@ Real lab execution requires explicit lab flags and `--real-lab`:
 $env:NCP_ALLOW_REAL_DEVICE_APPLY = "true"
 $env:NCP_LAB_REAL_APPLY_ENABLED = "true"
 $env:NCP_PRODUCTION_REAL_APPLY_ENABLED = "false"
-switchfleet inventory.xlsx execute-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run> --real-lab
+switchfleet inventory.xlsx execute-apply --device 192.0.2.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run> --real-lab
 ```
 
 Credential decrypt and transport creation happen only after the file-mode safety decision allows the request.

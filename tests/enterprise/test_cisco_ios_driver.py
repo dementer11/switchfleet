@@ -3,13 +3,13 @@ from app.drivers.cisco_ios import CiscoIOSDriver
 
 
 def test_cisco_vlan_present_commands() -> None:
-    result = CiscoIOSDriver("10.0.0.2").plan_vlan_intent(VlanIntent(vlan_id=100, name="USERS", state="present"))
+    result = CiscoIOSDriver("192.0.2.2").plan_vlan_intent(VlanIntent(vlan_id=100, name="USERS", state="present"))
 
     assert result.commands == ["configure terminal", "vlan 100", "name USERS", "exit", "end"]
 
 
 def test_cisco_trunk_commands() -> None:
-    commands = CiscoIOSDriver("10.0.0.2").render_trunk_port(
+    commands = CiscoIOSDriver("192.0.2.2").render_trunk_port(
         PortIntent(
             interface="GigabitEthernet1/0/1",
             mode="trunk",
