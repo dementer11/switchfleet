@@ -21,7 +21,7 @@ def _secret() -> str:
 def _payload(secret: str) -> dict[str, object]:
     return {
         "requested_by": "sec",
-        "devices": [{"ip_address": "10.50.0.1", "vendor": "Cisco", "model": "Cat2960-48"}],
+        "devices": [{"ip_address": "192.0.2.1", "vendor": "Cisco", "model": "Cat2960-48"}],
         "username": "admin",
         "new_password": secret,
     }

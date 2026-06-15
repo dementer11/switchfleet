@@ -16,7 +16,7 @@ def _payload(dry_run: bool) -> dict[str, object]:
         "strict": False,
         "items": [
             {
-                "ip": "10.4.0.1",
+                "ip": "192.0.2.1",
                 "hostname": "sw-core-1",
                 "vendor": "Huawei",
                 "model": "S5735",
@@ -75,7 +75,7 @@ def test_inventory_import_rejects_duplicate_hostname_with_different_ip() -> None
             "dry_run": False,
             "items": [
                 {
-                    "ip": "10.4.1.1",
+                    "ip": "192.0.2.1",
                     "hostname": "sw-conflict",
                     "vendor": "Cisco",
                     "model": "Cat2960-48",
@@ -91,7 +91,7 @@ def test_inventory_import_rejects_duplicate_hostname_with_different_ip() -> None
             "dry_run": False,
             "items": [
                 {
-                    "ip": "10.4.1.2",
+                    "ip": "192.0.2.2",
                     "hostname": "sw-conflict",
                     "vendor": "Cisco",
                     "model": "Cat2960-48",

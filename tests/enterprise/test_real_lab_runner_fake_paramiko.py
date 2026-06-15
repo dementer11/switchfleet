@@ -53,8 +53,8 @@ def test_allowed_huawei_evaluation_can_use_fake_paramiko_transport() -> None:
         ),
         device=Device(
             hostname="sw2-lab",
-            ip_address="192.168.88.12",
-            management_ip="192.168.88.12",
+            ip_address="198.51.100.12",
+            management_ip="198.51.100.12",
             vendor="Huawei",
             model="S5720",
             platform="vrp",

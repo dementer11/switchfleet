@@ -7,7 +7,7 @@ from app.services.change_planner import ChangePlanner
 def test_vlan_change_planner_returns_masked_dry_run() -> None:
     request = VlanChangeJobRequest(
         requested_by="alice",
-        devices=[DeviceInput(ip_address="10.0.0.1", vendor="Huawei", model="S5735")],
+        devices=[DeviceInput(ip_address="192.0.2.1", vendor="Huawei", model="S5735")],
         intent=VlanIntentSchema(vlan_id=100, name="USERS", state="present"),
     )
 
@@ -30,7 +30,7 @@ def test_vlan_change_planner_returns_masked_dry_run() -> None:
 def test_planner_marks_unconfirmed_bulat_template_as_not_apply_supported() -> None:
     request = VlanChangeJobRequest(
         requested_by="alice",
-        devices=[DeviceInput(ip_address="10.0.0.2", vendor="Bulat", model="BS2500-48G4S-A")],
+        devices=[DeviceInput(ip_address="192.0.2.2", vendor="Bulat", model="BS2500-48G4S-A")],
         intent=VlanIntentSchema(vlan_id=100, name="USERS", state="present"),
     )
 

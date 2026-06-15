@@ -15,7 +15,7 @@ from app.services.vlan_workflow_service import VlanWorkflowService
 
 
 def _device(
-    ip: str = "10.71.0.1",
+    ip: str = "192.0.2.1",
     driver_name: str = "CiscoIOSDriver",
     vendor: str = "Cisco",
     model: str = "Cat2960-48",
@@ -105,7 +105,7 @@ def test_vlan_validation_blocks_missing_backup_stale_backup_unsupported_and_miss
     stale_backup = VlanValidationService(SessionLocal()).validate_vlan_request(request_id)
     assert "Latest config snapshot is stale; fresh backup is required" in stale_backup.errors
 
-    unsupported_id = _device("10.71.0.2", driver_name="GenericSSHDriver", vendor="Unknown", model="Unknown")
+    unsupported_id = _device("192.0.2.2", driver_name="GenericSSHDriver", vendor="Unknown", model="Unknown")
     _snapshot(unsupported_id)
     _lab(unsupported_id)
     unsupported = VlanValidationService(SessionLocal()).validate_vlan_request(_request(unsupported_id))
@@ -113,7 +113,7 @@ def test_vlan_validation_blocks_missing_backup_stale_backup_unsupported_and_miss
 
 
 def test_vlan_validation_passes_with_fresh_backup_and_matching_lab_validation() -> None:
-    device_id = _device("10.71.0.3")
+    device_id = _device("192.0.2.3")
     _snapshot(device_id)
     _lab(device_id)
 

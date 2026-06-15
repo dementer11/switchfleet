@@ -10,7 +10,7 @@ def test_vlan_change_endpoint_returns_dry_run() -> None:
         "/api/v1/jobs/vlan-change",
         json={
             "requested_by": "alice",
-            "devices": [{"ip_address": "10.0.0.1", "vendor": "Cisco", "model": "Cat2960-48"}],
+            "devices": [{"ip_address": "192.0.2.1", "vendor": "Cisco", "model": "Cat2960-48"}],
             "intent": {"vlan_id": 100, "name": "USERS", "state": "present"},
         },
     )

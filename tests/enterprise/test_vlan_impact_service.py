@@ -18,7 +18,7 @@ def _prepared_request(operation: str, config_text: str, vlan_id: int = 120) -> s
     session = SessionLocal()
     device, _created = DeviceInventoryRepository(session).upsert_device(
         {
-            "management_ip": f"10.72.0.{vlan_id % 200}",
+            "management_ip": f"192.0.2.{vlan_id % 200}",
             "hostname": f"impact-{operation}",
             "vendor": "Cisco",
             "model": "Cat2960-48",

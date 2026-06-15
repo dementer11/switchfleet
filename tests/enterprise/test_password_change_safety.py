@@ -28,7 +28,7 @@ def _payload(
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "requested_by": "sec",
-        "devices": [{"ip_address": "10.40.0.1", "vendor": vendor, "model": model}],
+        "devices": [{"ip_address": "192.0.2.1", "vendor": vendor, "model": model}],
         "username": "admin",
         "new_password": _secret(),
     }

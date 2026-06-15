@@ -13,7 +13,7 @@ from app.repositories.device_inventory import DeviceInventoryRepository
 def _device_id() -> str:
     device, _created = DeviceInventoryRepository(SessionLocal()).upsert_device(
         {
-            "management_ip": "10.60.0.1",
+            "management_ip": "192.0.2.1",
             "hostname": "repo-sw",
             "vendor": "Cisco",
             "model": "Cat2960-48",

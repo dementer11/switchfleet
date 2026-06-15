@@ -14,7 +14,7 @@ def _create_vlan_job(client: TestClient, vendor: str = "Cisco", model: str = "Ca
             headers=HEADERS,
             json={
                 "requested_by": "netadmin",
-                "devices": [{"ip_address": "10.0.0.1", "vendor": vendor, "model": model}],
+                "devices": [{"ip_address": "192.0.2.1", "vendor": vendor, "model": model}],
                 "intent": {"vlan_id": 100, "name": "USERS", "state": "present"},
             },
         ).json()["job_id"]

@@ -9,7 +9,7 @@ from app.services.config_backup_service import ConfigBackupService
 def _device(site: str = "HQ", tag: str = "backup", driver_name: str = "CiscoIOSDriver") -> str:
     device, _created = DeviceInventoryRepository(SessionLocal()).upsert_device(
         {
-            "management_ip": f"10.61.0.{1 if driver_name != 'ReadOnlyICMPDriver' else 2}",
+            "management_ip": f"192.0.2.{1 if driver_name != 'ReadOnlyICMPDriver' else 2}",
             "hostname": f"{site}-{driver_name}",
             "vendor": "ICMP" if driver_name == "ReadOnlyICMPDriver" else "Cisco",
             "model": "ICMP-only" if driver_name == "ReadOnlyICMPDriver" else "Cat2960-48",

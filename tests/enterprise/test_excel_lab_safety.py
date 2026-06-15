@@ -295,8 +295,8 @@ def test_excel_lab_safety_requires_dry_run_for_same_device_and_operation(tmp_pat
         write_inventory(
             tmp_path / "inventory.xlsx",
             [
-                ["Active", "target", "Catalyst 2960", "10.13.4.67", "Cisco", "Switch", "Lab", "NetOps"],
-                ["Active", "other", "Catalyst 2960", "10.13.4.68", "Cisco", "Switch", "Lab", "NetOps"],
+                ["Active", "target", "Catalyst 2960", "192.0.2.67", "Cisco", "Switch", "Lab", "NetOps"],
+                ["Active", "other", "Catalyst 2960", "192.0.2.68", "Cisco", "Switch", "Lab", "NetOps"],
             ],
         )
     )
@@ -460,9 +460,9 @@ def test_excel_lab_safety_blocks_unknown_qtech_and_eltex_config_apply(tmp_path: 
         write_inventory(
             tmp_path / "inventory.xlsx",
             [
-                ["Active", "unknown", "Unknown SNMP Product", "10.13.4.71", "Huawei", "Switch", "Lab", "NetOps"],
-                ["Active", "qtech", "QSW-4610", "10.13.4.72", "QTECH", "Switch", "Lab", "NetOps"],
-                ["Active", "eltex", "MES2448", "10.13.4.73", "Eltex", "Switch", "Lab", "NetOps"],
+                ["Active", "unknown", "Unknown SNMP Product", "192.0.2.71", "Huawei", "Switch", "Lab", "NetOps"],
+                ["Active", "qtech", "QSW-4610", "192.0.2.72", "QTECH", "Switch", "Lab", "NetOps"],
+                ["Active", "eltex", "MES2448", "192.0.2.73", "Eltex", "Switch", "Lab", "NetOps"],
             ],
         )
     )
@@ -470,7 +470,7 @@ def test_excel_lab_safety_blocks_unknown_qtech_and_eltex_config_apply(tmp_path: 
     service = ExcelLabSafetyService(
         state,
         vault,
-        settings=Settings(environment="test", secret_key="excel-lab-secret-key", lab_device_allowlist="10.13.4.71,10.13.4.72,10.13.4.73"),
+        settings=Settings(environment="test", secret_key="excel-lab-secret-key", lab_device_allowlist="192.0.2.71,192.0.2.72,192.0.2.73"),
     )
 
     for device in (unknown, qtech, eltex):

@@ -16,11 +16,11 @@ def test_inventory_discovery_check_uses_safe_dummy_read_only_path() -> None:
             source_type="api",
             dry_run=False,
             items=[
-                {"ip": "10.3.0.1", "hostname": "reachable", "vendor": "Huawei", "model": "S5735"},
-                {"ip": "10.3.0.2", "hostname": "down", "vendor": "Huawei", "model": "S5735", "tags": ["unreachable"]},
-                {"ip": "10.3.0.3", "hostname": "auth", "vendor": "Huawei", "model": "S5735", "tags": ["auth_failed"]},
+                {"ip": "192.0.2.1", "hostname": "reachable", "vendor": "Huawei", "model": "S5735"},
+                {"ip": "192.0.2.2", "hostname": "down", "vendor": "Huawei", "model": "S5735", "tags": ["unreachable"]},
+                {"ip": "192.0.2.3", "hostname": "auth", "vendor": "Huawei", "model": "S5735", "tags": ["auth_failed"]},
                 {
-                    "ip": "10.3.0.4",
+                    "ip": "192.0.2.4",
                     "hostname": "unsupported",
                     "vendor": "Huawei",
                     "model": "S5735",
@@ -53,7 +53,7 @@ def test_inventory_discovery_never_calls_send_config(monkeypatch: pytest.MonkeyP
         InventoryImportRequest(
             source_type="api",
             dry_run=False,
-            items=[{"ip": "10.3.1.1", "hostname": "safe", "vendor": "Huawei", "model": "S5735"}],
+            items=[{"ip": "192.0.2.1", "hostname": "safe", "vendor": "Huawei", "model": "S5735"}],
         ),
         actor="netadmin",
     )

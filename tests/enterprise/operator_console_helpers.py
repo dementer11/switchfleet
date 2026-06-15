@@ -16,7 +16,7 @@ from app.repositories.vlan_workflows import VlanWorkflowRepository
 
 def create_console_device(
     session: Session,
-    ip: str = "10.99.0.1",
+    ip: str = "192.0.2.1",
     status: str = "known",
     credential_status: str = "valid",
 ) -> Device:
@@ -59,7 +59,7 @@ def add_console_lab(session: Session, device: Device) -> None:
 
 def seed_operator_console(session: Session) -> dict[str, str]:
     device = create_console_device(session)
-    stale_device = create_console_device(session, ip="10.99.0.2", credential_status="invalid")
+    stale_device = create_console_device(session, ip="192.0.2.2", credential_status="invalid")
     add_console_snapshot(session, device)
     add_console_snapshot(session, stale_device, stale=True)
     add_console_lab(session, device)

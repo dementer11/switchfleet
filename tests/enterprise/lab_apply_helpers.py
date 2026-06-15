@@ -21,8 +21,8 @@ SECRET_KEY = "unit-test-secret-key-for-vault"
 
 def create_lab_device(session: Session, *, vendor: str = "Cisco", model: str = "Catalyst 2960", driver_name: str = "CiscoIOSDriver") -> Device:
     device = Device(
-        ip_address=f"10.77.0.{len(session.query(Device).all()) + 10}",
-        management_ip=f"10.77.0.{len(session.query(Device).all()) + 10}",
+        ip_address=f"192.0.2.{len(session.query(Device).all()) + 10}",
+        management_ip=f"192.0.2.{len(session.query(Device).all()) + 10}",
         hostname="lab-switch",
         vendor=vendor,
         model=model,

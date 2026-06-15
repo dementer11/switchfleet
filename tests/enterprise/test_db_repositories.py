@@ -23,7 +23,7 @@ def test_repositories_create_and_read_core_records() -> None:
     locks = DeviceLockRepository(session)
 
     device = devices.create_or_update_from_input(
-        DeviceInput(ip_address="10.0.0.10", vendor="Cisco", model="Cat2960-48"),
+        DeviceInput(ip_address="192.0.2.10", vendor="Cisco", model="Cat2960-48"),
         driver_name="CiscoIOSDriver",
         capabilities={"supports_vlan": True},
     )

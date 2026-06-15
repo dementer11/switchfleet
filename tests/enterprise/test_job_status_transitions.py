@@ -13,7 +13,7 @@ def test_job_status_transitions_from_pending_to_succeeded() -> None:
         headers=HEADERS,
         json={
             "requested_by": "netadmin",
-            "devices": [{"ip_address": "10.0.0.1", "vendor": "Huawei", "model": "S5735"}],
+            "devices": [{"ip_address": "192.0.2.1", "vendor": "Huawei", "model": "S5735"}],
             "intent": {"vlan_id": 100, "name": "USERS", "state": "present"},
         },
     ).json()

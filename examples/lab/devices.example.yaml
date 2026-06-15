@@ -1,6 +1,6 @@
 devices:
   - hostname: sw1-lab
-    management_ip: 192.168.88.11
+    management_ip: 198.51.100.11
     vendor: Cisco
     model: Catalyst 2960
     platform: ios
@@ -11,7 +11,7 @@ devices:
       environment: lab
 
   - hostname: sw2-lab
-    management_ip: 192.168.88.12
+    management_ip: 198.51.100.12
     vendor: Huawei
     model: S5720
     platform: vrp
@@ -22,7 +22,7 @@ devices:
       environment: lab
 
   - hostname: sw3-lab
-    management_ip: 192.168.88.13
+    management_ip: 198.51.100.13
     vendor: HPE
     model: 5130
     platform: comware
@@ -33,7 +33,7 @@ devices:
       environment: lab
 
   - hostname: sw4-lab
-    management_ip: 192.168.88.14
+    management_ip: 198.51.100.14
     vendor: Dell
     model: PowerConnect
     platform: dell

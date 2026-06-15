@@ -12,7 +12,7 @@ def write_inventory(path: Path, rows: list[list[str]] | None = None) -> Path:
     workbook = Workbook()
     sheet = workbook.active
     sheet.append(EXCEL_HEADERS)
-    for row in rows or [["Active", "sw1-lab", "Catalyst 2960", "10.13.4.67", "Cisco", "Switch", "Lab", "NetOps"]]:
+    for row in rows or [["Active", "sw1-lab", "Catalyst 2960", "192.0.2.67", "Cisco", "Switch", "Lab", "NetOps"]]:
         sheet.append(row)
     workbook.save(path)
     workbook.close()

@@ -8,7 +8,7 @@ Use the installed `switchfleet` command for the operator-facing lab prototype.
 switchfleet inventory.xlsx doctor
 switchfleet inventory.xlsx summary
 switchfleet inventory.xlsx list
-switchfleet inventory.xlsx check-runtime --device 10.13.4.67
+switchfleet inventory.xlsx check-runtime --device 192.0.2.67
 ```
 
 This path reads the Excel inventory directly, stores local JSON/JSONL state under `.switchfleet_lab/`, and does not require PostgreSQL, Alembic, FastAPI startup, or SQLAlchemy setup.

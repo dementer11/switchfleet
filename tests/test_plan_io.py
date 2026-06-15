@@ -9,7 +9,7 @@ from netops_orchestrator.plan_io import read_plans, write_plans
 
 class PlanIoTests(unittest.TestCase):
     def test_round_trip_preserves_steps_and_transport(self):
-        device = Device(label="sw1", ip_address="10.0.0.1", vendor="Huawei", model="S5735")
+        device = Device(label="sw1", ip_address="192.0.2.1", vendor="Huawei", model="S5735")
         plan = driver_for(device).change_password("admin", "Secret123", AccessLevel.admin)
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -23,7 +23,7 @@ class PlanIoTests(unittest.TestCase):
         self.assertTrue(any(step.secret for step in restored.execution_steps))
 
     def test_redacted_plan_file_does_not_include_secret(self):
-        device = Device(label="sw1", ip_address="10.0.0.1", vendor="Cisco", model="Catalyst 2960")
+        device = Device(label="sw1", ip_address="192.0.2.1", vendor="Cisco", model="Catalyst 2960")
         plan = driver_for(device).change_password("admin", "Secret123", AccessLevel.admin)
 
         with tempfile.TemporaryDirectory() as tmp:

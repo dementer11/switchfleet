@@ -55,7 +55,7 @@ class StepAwareFakeTransport(FakeTransport):
 
 class BackupPipelineTests(unittest.TestCase):
     def test_backup_writes_captured_output_to_cfg_file(self):
-        device = Device(label="sw-core", ip_address="10.0.0.10", vendor="Huawei", model="S5735")
+        device = Device(label="sw-core", ip_address="192.0.2.10", vendor="Huawei", model="S5735")
         plan = CommandPlan(
             device=device,
             driver="huawei_vrp",
@@ -72,13 +72,13 @@ class BackupPipelineTests(unittest.TestCase):
         self.assertTrue(transport.connected)
         self.assertTrue(transport.closed)
         self.assertEqual(transport.commands, ["screen-length 0 temporary", "display current-configuration"])
-        self.assertIn("# ip: 10.0.0.10", content)
+        self.assertIn("# ip: 192.0.2.10", content)
         self.assertIn("### command: display current-configuration", content)
         self.assertIn("CONFIG-LINE", content)
         self.assertTrue(path.name.endswith(".cfg"))
 
     def test_empty_plan_does_not_connect(self):
-        device = Device(label="unknown", ip_address="10.0.0.20", vendor="Unknown", model="ICMP")
+        device = Device(label="unknown", ip_address="192.0.2.20", vendor="Unknown", model="ICMP")
         plan = CommandPlan(device=device, driver="unsupported_cli", operation="backup", commands=(), read_only=True)
         transport = FakeTransport()
 
@@ -88,7 +88,7 @@ class BackupPipelineTests(unittest.TestCase):
         self.assertEqual(results, [])
 
     def test_backup_fail_on_error_writes_output_then_raises(self):
-        device = Device(label="sw-core", ip_address="10.0.0.10", vendor="Huawei", model="S5735")
+        device = Device(label="sw-core", ip_address="192.0.2.10", vendor="Huawei", model="S5735")
         plan = CommandPlan(
             device=device,
             driver="huawei_vrp",
@@ -109,7 +109,7 @@ class BackupPipelineTests(unittest.TestCase):
         self.assertIn("# error: CLI rejected command", content)
 
     def test_audit_redacts_secret_commands(self):
-        device = Device(label="sw-core", ip_address="10.0.0.10", vendor="Cisco", model="Catalyst")
+        device = Device(label="sw-core", ip_address="192.0.2.10", vendor="Cisco", model="Catalyst")
         plan = CommandPlan(
             device=device,
             driver="cisco_ios",
@@ -129,7 +129,7 @@ class BackupPipelineTests(unittest.TestCase):
         self.assertNotIn("Secret123", json.dumps(records))
 
     def test_audit_records_plan_error_on_connect_failure(self):
-        device = Device(label="sw-core", ip_address="10.0.0.10", vendor="Cisco", model="Catalyst")
+        device = Device(label="sw-core", ip_address="192.0.2.10", vendor="Cisco", model="Catalyst")
         plan = CommandPlan(device=device, driver="cisco_ios", operation="backup", commands=("show run",), read_only=True)
 
         with tempfile.TemporaryDirectory() as tmp:

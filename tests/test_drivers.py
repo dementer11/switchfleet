@@ -5,7 +5,7 @@ from netops_orchestrator.models import AccessLevel, AclRule, Device, PortChange,
 
 
 def device(vendor: str, model: str) -> Device:
-    return Device(label="sw1", ip_address="10.0.0.1", vendor=vendor, model=model)
+    return Device(label="sw1", ip_address="192.0.2.1", vendor=vendor, model=model)
 
 
 class DriverCommandTests(unittest.TestCase):
@@ -53,12 +53,12 @@ class DriverCommandTests(unittest.TestCase):
     def test_eltex_acl_plan(self):
         plan = driver_for(device("Eltex", "MES2448B")).configure_acl(
             "MGMT_ONLY",
-            [AclRule(sequence=10, action="permit", protocol="tcp", source="10.0.0.0 0.0.0.255", destination="any")],
+            [AclRule(sequence=10, action="permit", protocol="tcp", source="192.0.2.0 0.0.0.255", destination="any")],
         )
 
         self.assertEqual(plan.driver, "eltex_mes")
         self.assertIn("ip access-list extended MGMT_ONLY", plan.commands)
-        self.assertIn("10 permit tcp 10.0.0.0 0.0.0.255 any", plan.commands)
+        self.assertIn("10 permit tcp 192.0.2.0 0.0.0.255 any", plan.commands)
         self.assertEqual(plan.save_commands, ("copy running-config startup-config",))
 
     def test_qtech_port_plan(self):

@@ -15,7 +15,7 @@ from app.repositories.vlan_workflows import VlanWorkflowRepository
 from app.repositories.change_executions import utcnow
 
 
-def create_device(session: Session, ip: str = "10.88.0.1", driver_name: str = "CiscoIOSDriver") -> Device:
+def create_device(session: Session, ip: str = "192.0.2.1", driver_name: str = "CiscoIOSDriver") -> Device:
     device, _created = DeviceInventoryRepository(session).upsert_device(
         {
             "management_ip": ip,
@@ -92,7 +92,7 @@ def create_ready_vlan_source(session: Session, device: Device | None = None, sta
 
 
 def create_password_source(session: Session, device: Device | None = None, approved: bool = True) -> tuple[str, str]:
-    device = device or create_device(session, ip="10.88.0.2")
+    device = device or create_device(session, ip="192.0.2.2")
     add_snapshot(session, device)
     add_lab(session, device, "password_change")
     job = JobRepository(session).create(
@@ -114,7 +114,7 @@ def create_password_source(session: Session, device: Device | None = None, appro
 
 
 def create_config_backup_source(session: Session, device: Device | None = None) -> tuple[str, str]:
-    device = device or create_device(session, ip="10.88.0.3")
+    device = device or create_device(session, ip="192.0.2.3")
     repo = ConfigBackupRepository(session)
     job = repo.create_job("exec backup", "device_ids", {"device_ids": [str(device.id)]}, requested_by="operator")
     repo.create_job_items(job.id, [device.id])

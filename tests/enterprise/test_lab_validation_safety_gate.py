@@ -100,7 +100,7 @@ def test_executor_env_true_without_lab_validation_blocks_real_transport_path() -
         headers=HEADERS,
         json={
             "requested_by": "netadmin",
-            "devices": [{"ip_address": "10.80.0.1", "vendor": "Cisco", "model": "Cat2960-48"}],
+            "devices": [{"ip_address": "192.0.2.1", "vendor": "Cisco", "model": "Cat2960-48"}],
             "intent": {"vlan_id": 100, "name": "USERS", "state": "present"},
         },
     ).json()["job_id"]
@@ -129,7 +129,7 @@ def test_executor_env_true_with_approved_lab_validation_passes_lab_gate_only() -
         headers=HEADERS,
         json={
             "requested_by": "netadmin",
-            "devices": [{"ip_address": "10.80.0.2", "vendor": "Cisco", "model": "Cat2960-48"}],
+            "devices": [{"ip_address": "192.0.2.2", "vendor": "Cisco", "model": "Cat2960-48"}],
             "intent": {"vlan_id": 200, "name": "USERS", "state": "present"},
         },
     ).json()["job_id"]

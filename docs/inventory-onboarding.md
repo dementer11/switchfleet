@@ -16,7 +16,7 @@ It does not enable real device apply. It does not run configuration commands. It
   "strict": false,
   "items": [
     {
-      "ip": "10.0.0.1",
+      "ip": "192.0.2.1",
       "hostname": "sw-core-1",
       "vendor": "Huawei",
       "model": "S5735",

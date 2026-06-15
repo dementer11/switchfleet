@@ -11,7 +11,7 @@ def test_config_restore_plan_is_preview_only_and_can_be_approved_or_rejected() -
     session = SessionLocal()
     device, _created = DeviceInventoryRepository(session).upsert_device(
         {
-            "management_ip": "10.63.0.1",
+            "management_ip": "192.0.2.1",
             "hostname": "restore-sw",
             "vendor": "Cisco",
             "model": "Cat2960-48",
@@ -39,7 +39,7 @@ def test_restore_plan_requires_snapshot_for_same_device() -> None:
     session = SessionLocal()
     first_device, _created = DeviceInventoryRepository(session).upsert_device(
         {
-            "management_ip": "10.63.0.2",
+            "management_ip": "192.0.2.2",
             "hostname": "restore-sw-a",
             "vendor": "Cisco",
             "model": "Cat2960-48",
@@ -48,7 +48,7 @@ def test_restore_plan_requires_snapshot_for_same_device() -> None:
     )
     second_device, _created = DeviceInventoryRepository(session).upsert_device(
         {
-            "management_ip": "10.63.0.3",
+            "management_ip": "192.0.2.3",
             "hostname": "restore-sw-b",
             "vendor": "Cisco",
             "model": "Cat2960-48",

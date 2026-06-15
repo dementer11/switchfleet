@@ -38,7 +38,7 @@ $body = @{
 } | ConvertTo-Json
 
 Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/lab-validations" `
+  -Uri "http://localhost:8000/api/v1/lab-validations" `
   -Headers @{ "X-Actor" = "sec"; "X-Roles" = "security_admin" } `
   -ContentType "application/json" `
   -Body $body
@@ -54,7 +54,7 @@ $body = @{
 } | ConvertTo-Json
 
 Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/lab-validations/<validation_id>/transcript" `
+  -Uri "http://localhost:8000/api/v1/lab-validations/<validation_id>/transcript" `
   -Headers @{ "X-Actor" = "sec"; "X-Roles" = "security_admin" } `
   -ContentType "application/json" `
   -Body $body
@@ -66,7 +66,7 @@ Approve, reject, or expire:
 
 ```powershell
 Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/lab-validations/<validation_id>/approve" `
+  -Uri "http://localhost:8000/api/v1/lab-validations/<validation_id>/approve" `
   -Headers @{ "X-Actor" = "sec"; "X-Roles" = "security_admin" } `
   -ContentType "application/json" `
   -Body '{"evidence_summary":"lab transcript reviewed"}'

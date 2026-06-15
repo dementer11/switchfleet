@@ -11,7 +11,7 @@ def test_config_diff_summary_and_drift_report() -> None:
     session = SessionLocal()
     device, _created = DeviceInventoryRepository(session).upsert_device(
         {
-            "management_ip": "10.62.0.1",
+            "management_ip": "192.0.2.1",
             "hostname": "diff-sw",
             "vendor": "Cisco",
             "model": "Cat2960-48",

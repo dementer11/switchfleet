@@ -53,7 +53,7 @@ intentionally blocked for destructive execution and should be used only for lega
 1. Run inventory recognition:
 
    ```powershell
-   switchfleet inventory.xlsx check-runtime --device 10.13.4.67
+   switchfleet inventory.xlsx check-runtime --device 192.0.2.67
    ```
 
    Confirm the selected driver and transport match the device family.
@@ -79,8 +79,8 @@ intentionally blocked for destructive execution and should be used only for lega
 4. Capture a read-only backup:
 
    ```powershell
-   $env:NCP_LAB_DEVICE_ALLOWLIST = "10.13.4.67"
-   switchfleet inventory.xlsx backup --device 10.13.4.67 --credential lab-admin
+   $env:NCP_LAB_DEVICE_ALLOWLIST = "192.0.2.67"
+   switchfleet inventory.xlsx backup --device 192.0.2.67 --credential lab-admin
    ```
 
    Confirm the backup is sanitized, complete, and has no pager artifacts.
@@ -88,9 +88,9 @@ intentionally blocked for destructive execution and should be used only for lega
 5. Render dry-runs:
 
    ```powershell
-   switchfleet inventory.xlsx dry-run --device 10.13.4.67 --operation vlan_create --vlan-id 3999 --name LAB_CANARY
+   switchfleet inventory.xlsx dry-run --device 192.0.2.67 --operation vlan_create --vlan-id 3999 --name LAB_CANARY
    $env:NEW_SWITCH_PASS = "lab-new-password"
-   switchfleet inventory.xlsx dry-run --device 10.13.4.67 --operation password_change --username lab-temp --new-password-env NEW_SWITCH_PASS
+   switchfleet inventory.xlsx dry-run --device 192.0.2.67 --operation password_change --username lab-temp --new-password-env NEW_SWITCH_PASS
    ```
 
    Confirm commands match the exact CLI syntax for the platform and secret commands are redacted in output and state.
@@ -98,7 +98,7 @@ intentionally blocked for destructive execution and should be used only for lega
 6. Evaluate gates:
 
    ```powershell
-   switchfleet inventory.xlsx evaluate-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 3999 --name LAB_CANARY --simulation-hash <hash-from-dry-run>
+   switchfleet inventory.xlsx evaluate-apply --device 192.0.2.67 --credential lab-admin --operation vlan_create --vlan-id 3999 --name LAB_CANARY --simulation-hash <hash-from-dry-run>
    ```
 
    Confirm evaluation does not decrypt credentials or open SSH and denies until backup, certification, hash, allowlist,
@@ -107,7 +107,7 @@ intentionally blocked for destructive execution and should be used only for lega
 7. Record lab-only certification evidence:
 
    ```powershell
-   switchfleet inventory.xlsx certify --device 10.13.4.67 --capability vlan_create --credential lab-admin
+   switchfleet inventory.xlsx certify --device 192.0.2.67 --capability vlan_create --credential lab-admin
    switchfleet inventory.xlsx certification-report
    ```
 
@@ -119,7 +119,7 @@ intentionally blocked for destructive execution and should be used only for lega
    $env:NCP_ALLOW_REAL_DEVICE_APPLY = "true"
    $env:NCP_LAB_REAL_APPLY_ENABLED = "true"
    $env:NCP_PRODUCTION_REAL_APPLY_ENABLED = "false"
-   switchfleet inventory.xlsx execute-apply --device 10.13.4.67 --credential lab-admin --operation vlan_create --vlan-id 3999 --name LAB_CANARY --simulation-hash <hash-from-dry-run> --real-lab
+   switchfleet inventory.xlsx execute-apply --device 192.0.2.67 --credential lab-admin --operation vlan_create --vlan-id 3999 --name LAB_CANARY --simulation-hash <hash-from-dry-run> --real-lab
    ```
 
    Confirm the safety decision is allowed before credential decrypt or SSH transport creation.

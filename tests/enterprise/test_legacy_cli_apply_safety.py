@@ -13,7 +13,7 @@ def _inventory(tmp_path: Path, vendor: str = "Cisco", model: str = "Catalyst 296
     path = tmp_path / "inventory.csv"
     path.write_text(
         "label,ip address,vendor,model\n"
-        f"sw1,10.0.0.1,{vendor},{model}\n",
+        f"sw1,192.0.2.1,{vendor},{model}\n",
         encoding="utf-8",
     )
     return path

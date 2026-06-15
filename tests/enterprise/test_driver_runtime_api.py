@@ -53,8 +53,8 @@ def test_driver_runtime_decision_summary_and_safety_endpoints() -> None:
 def test_driver_runtime_device_decision_uses_inventory_device() -> None:
     session = SessionLocal()
     device = Device(
-        ip_address="10.91.0.10",
-        management_ip="10.91.0.10",
+        ip_address="192.0.2.10",
+        management_ip="192.0.2.10",
         hostname="edge-cisco",
         vendor="Cisco",
         model="Catalyst 2960",

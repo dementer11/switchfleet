@@ -12,12 +12,12 @@ def test_excel_inventory_parses_user_columns_and_runtime_hints(tmp_path: Path) -
     path = write_inventory(
         tmp_path / "inventory.xlsx",
         [
-            ["Active", "huawei-lab", "S5720", "10.13.4.67", "HUAWEI", "Switch", "Lab", "NetOps"],
-            ["Active", "hpe-lab", "1910", "10.13.4.68", "Hewlett Packard", "Switch", "Lab", "NetOps"],
-            ["Active", "eltex-lab", "MES2448", "10.13.4.69", "Eltex", "Switch", "Lab", "NetOps"],
-            ["Active", "bulat-lab", "BS2500", "10.13.4.70", "Bulat", "Switch", "Lab", "NetOps"],
-            ["Active", "unknown-lab", "Unknown SNMP Product", "10.13.4.71", "Huawei", "Switch", "Lab", "NetOps"],
-            ["Service", "service-row", "n/a", "10.13.4.72", "n/a", "Service", "Lab", "NetOps"],
+            ["Active", "huawei-lab", "S5720", "192.0.2.67", "HUAWEI", "Switch", "Lab", "NetOps"],
+            ["Active", "hpe-lab", "1910", "192.0.2.68", "Hewlett Packard", "Switch", "Lab", "NetOps"],
+            ["Active", "eltex-lab", "MES2448", "192.0.2.69", "Eltex", "Switch", "Lab", "NetOps"],
+            ["Active", "bulat-lab", "BS2500", "192.0.2.70", "Bulat", "Switch", "Lab", "NetOps"],
+            ["Active", "unknown-lab", "Unknown SNMP Product", "192.0.2.71", "Huawei", "Switch", "Lab", "NetOps"],
+            ["Service", "service-row", "n/a", "192.0.2.72", "n/a", "Service", "Lab", "NetOps"],
         ],
     )
 
@@ -29,7 +29,7 @@ def test_excel_inventory_parses_user_columns_and_runtime_hints(tmp_path: Path) -
     assert devices[2].driver_name == "EltexMESDriver"
     assert devices[3].driver_name == "BulatBSDriver"
     assert devices[4].driver_name is None
-    assert resolve_excel_device(devices, "10.13.4.67").label == "huawei-lab"
+    assert resolve_excel_device(devices, "192.0.2.67").label == "huawei-lab"
     assert resolve_excel_device(devices, devices[0].id).label == "huawei-lab"
 
 
@@ -51,8 +51,8 @@ def test_excel_inventory_missing_columns_and_duplicate_selector_are_friendly(tmp
     duplicated = write_inventory(
         tmp_path / "duplicated.xlsx",
         [
-            ["Active", "same-label", "Catalyst 2960", "10.13.4.67", "Cisco", "Switch", "Lab", "NetOps"],
-            ["Active", "same-label", "Catalyst 2960", "10.13.4.68", "Cisco", "Switch", "Lab", "NetOps"],
+            ["Active", "same-label", "Catalyst 2960", "192.0.2.67", "Cisco", "Switch", "Lab", "NetOps"],
+            ["Active", "same-label", "Catalyst 2960", "192.0.2.68", "Cisco", "Switch", "Lab", "NetOps"],
         ],
     )
     devices = load_excel_inventory(duplicated)

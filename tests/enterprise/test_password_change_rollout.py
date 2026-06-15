@@ -23,7 +23,7 @@ def _payload(device_count: int = 3) -> dict[str, object]:
     return {
         "requested_by": "sec",
         "devices": [
-            {"ip_address": f"10.30.0.{index}", "vendor": "Cisco", "model": "Cat2960-48"}
+            {"ip_address": f"192.0.2.{index}", "vendor": "Cisco", "model": "Cat2960-48"}
             for index in range(1, device_count + 1)
         ],
         "username": "admin",

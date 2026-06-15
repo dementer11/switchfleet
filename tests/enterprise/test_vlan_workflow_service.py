@@ -19,7 +19,7 @@ def _prepared_request() -> str:
     session = SessionLocal()
     device, _created = DeviceInventoryRepository(session).upsert_device(
         {
-            "management_ip": "10.74.0.1",
+            "management_ip": "192.0.2.1",
             "hostname": "workflow-sw",
             "vendor": "Cisco",
             "model": "Cat2960-48",

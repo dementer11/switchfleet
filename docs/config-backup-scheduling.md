@@ -17,7 +17,7 @@ $body = @{
 } | ConvertTo-Json -Depth 6
 
 Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/config-backups/jobs" `
+  -Uri "http://localhost:8000/api/v1/config-backups/jobs" `
   -Headers @{ "X-Actor" = "netadmin"; "X-Roles" = "network_admin" } `
   -ContentType "application/json" `
   -Body $body
@@ -29,7 +29,7 @@ Run a job manually:
 
 ```powershell
 Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/config-backups/jobs/<job_id>/run" `
+  -Uri "http://localhost:8000/api/v1/config-backups/jobs/<job_id>/run" `
   -Headers @{ "X-Actor" = "netop"; "X-Roles" = "network_operator" }
 ```
 
@@ -53,7 +53,7 @@ $body = @{
 } | ConvertTo-Json -Depth 6
 
 Invoke-RestMethod -Method Post `
-  -Uri "http://127.0.0.1:8000/api/v1/config-backups/devices/<device_id>/snapshots/import" `
+  -Uri "http://localhost:8000/api/v1/config-backups/devices/<device_id>/snapshots/import" `
   -Headers @{ "X-Actor" = "netadmin"; "X-Roles" = "network_admin" } `
   -ContentType "application/json" `
   -Body $body

@@ -12,9 +12,9 @@ def test_inventory_driver_resolution_report_handles_supported_and_unknown_device
             source_type="api",
             dry_run=True,
             items=[
-                {"ip": "10.1.0.1", "hostname": "sw-huawei", "vendor": "Huawei", "model": "S5735"},
-                {"ip": "10.1.0.2", "hostname": "sensor", "vendor": "Unknown SNMP Product", "model": "Unknown SNMP Product"},
-                {"ip": "10.1.0.3", "hostname": "icmp", "vendor": "ICMP-only", "model": "ICMP-only"},
+                {"ip": "192.0.2.1", "hostname": "sw-huawei", "vendor": "Huawei", "model": "S5735"},
+                {"ip": "192.0.2.2", "hostname": "sensor", "vendor": "Unknown SNMP Product", "model": "Unknown SNMP Product"},
+                {"ip": "192.0.2.3", "hostname": "icmp", "vendor": "ICMP-only", "model": "ICMP-only"},
             ],
         ),
         actor="netadmin",
