@@ -4,7 +4,7 @@ import re
 import socket
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Protocol, cast
 
 from app.core.exceptions import SafetyError
 from app.core.transport_strategy import DeviceFamily, TransportDecision, TransportKind
@@ -43,6 +43,12 @@ class LegacySshOptions:
 
 
 @dataclass(frozen=True)
+class PagingMarker:
+    text: str
+    continuation: str
+
+
+@dataclass(frozen=True)
 class LabCommandResult:
     command: str
     output: str
@@ -70,6 +76,18 @@ class LabCommandTransport(Protocol):
         ...
 
     def run_command(self, command: str, timeout_seconds: int = 60) -> CommandExecutionResult:
+        ...
+
+
+class InteractivePagingTransport(Protocol):
+    def run_read_only_backup_command(
+        self,
+        command: str,
+        timeout_seconds: int = 60,
+        *,
+        max_pages: int = 500,
+        max_bytes: int = 10 * 1024 * 1024,
+    ) -> CommandExecutionResult:
         ...
 
 
@@ -103,6 +121,7 @@ class RuntimeApplyEvaluation(Protocol):
 
 class NetmikoCommandTransport:
     def __init__(self, decision: TransportDecision, credentials: RuntimeCredentials, host: str, port: int, timeout: int):
+        self.decision = decision
         self._transport = NetmikoTransport(
             NetmikoConnectionParams(
                 host=host,
@@ -123,6 +142,25 @@ class NetmikoCommandTransport:
 
     def run_command(self, command: str, timeout_seconds: int = 60) -> CommandExecutionResult:
         return self._transport.send_command(command, timeout_seconds=timeout_seconds)
+
+    def run_read_only_backup_command(
+        self,
+        command: str,
+        timeout_seconds: int = 60,
+        *,
+        max_pages: int = 500,
+        max_bytes: int = 10 * 1024 * 1024,
+    ) -> CommandExecutionResult:
+        result = self._transport.send_command(command, timeout_seconds=timeout_seconds)
+        return _continue_paged_backup_result(
+            decision=self.decision,
+            command=command,
+            initial_result=result,
+            send_continuation=lambda key: self._transport.send_command(key, timeout_seconds=timeout_seconds),
+            timeout_seconds=timeout_seconds,
+            max_pages=max_pages,
+            max_bytes=max_bytes,
+        )
 
 
 class ParamikoCommandTransport:
@@ -197,6 +235,24 @@ class ParamikoCommandTransport:
             error=error,
         )
 
+    def run_read_only_backup_command(
+        self,
+        command: str,
+        timeout_seconds: int = 60,
+        *,
+        max_pages: int = 500,
+        max_bytes: int = 10 * 1024 * 1024,
+    ) -> CommandExecutionResult:
+        if self._channel is None:
+            raise RuntimeError("Paramiko lab transport is not open")
+        self._channel.send(command + "\n")
+        return self._read_backup_until_prompt_with_pager(
+            command,
+            timeout_seconds=timeout_seconds,
+            max_pages=max_pages,
+            max_bytes=max_bytes,
+        )
+
     def _open_client(self, paramiko: Any) -> tuple[Any, Any]:
         if legacy_ssh_options_for_decision(self.decision) is not None:
             return self._open_legacy_client(paramiko)
@@ -259,6 +315,60 @@ class ParamikoCommandTransport:
         output = "".join(chunks)
         self._last_output = output
         return output, False
+
+    def _read_backup_until_prompt_with_pager(
+        self,
+        command: str,
+        *,
+        timeout_seconds: int,
+        max_pages: int,
+        max_bytes: int,
+    ) -> CommandExecutionResult:
+        if self._channel is None:
+            raise RuntimeError("Paramiko lab transport is not open")
+        deadline = time.monotonic() + float(timeout_seconds)
+        output = ""
+        pages = 0
+        prompt = prompt_regex_for_decision(self.decision)
+        while time.monotonic() < deadline:
+            try:
+                if self._channel.recv_ready():
+                    data = self._channel.recv(65535).decode("utf-8", errors="replace")
+                    output += data
+                    self._last_output = output
+                    if len(output.encode("utf-8", errors="replace")) > max_bytes:
+                        return _paging_failure_result(
+                            self.decision,
+                            command,
+                            output,
+                            f"Exceeded max_bytes={max_bytes} while continuing paged backup output",
+                        )
+                    marker = find_paging_marker(output)
+                    if marker is not None:
+                        pages += 1
+                        if pages > max_pages:
+                            return _paging_failure_result(
+                                self.decision,
+                                command,
+                                output,
+                                f"Exceeded max_pages={max_pages} while continuing paged backup output",
+                            )
+                        output = strip_paging_markers(output)
+                        self._last_output = output
+                        self._channel.send(marker.continuation)
+                        continue
+                    if prompt.search(output):
+                        return CommandExecutionResult(command=command, output=strip_paging_markers(output), success=True)
+                else:
+                    time.sleep(0.05)
+            except socket.timeout:
+                break
+        return _paging_failure_result(
+            self.decision,
+            command,
+            output,
+            f"Timed out waiting for prompt after {timeout_seconds}s while continuing paged backup output",
+        )
 
 
 LabTransportBuilder = Callable[[TransportDecision, RuntimeCredentials, str, int, int], LabCommandTransport]
@@ -376,6 +486,101 @@ def output_has_paging_marker(output: str) -> bool:
     return any(pattern.search(output) for pattern in PAGING_MARKER_PATTERNS)
 
 
+def find_paging_marker(output: str) -> PagingMarker | None:
+    matches = [match for pattern in PAGING_MARKER_PATTERNS if (match := pattern.search(output)) is not None]
+    if not matches:
+        return None
+    match = min(matches, key=lambda item: item.start())
+    text = match.group(0)
+    return PagingMarker(text=text, continuation="\n" if "enter" in text.casefold() else " ")
+
+
+def strip_paging_markers(output: str) -> str:
+    cleaned = output
+    for pattern in PAGING_MARKER_PATTERNS:
+        cleaned = pattern.sub("", cleaned)
+    return cleaned
+
+
+def run_read_only_backup_command(
+    transport: LabCommandTransport,
+    command: str,
+    timeout_seconds: int = 60,
+) -> CommandExecutionResult:
+    interactive = getattr(transport, "run_read_only_backup_command", None)
+    if callable(interactive):
+        interactive_backup = cast(Callable[..., CommandExecutionResult], interactive)
+        return interactive_backup(command, timeout_seconds=timeout_seconds)
+    return transport.run_command(command, timeout_seconds=timeout_seconds)
+
+
+def _continue_paged_backup_result(
+    *,
+    decision: TransportDecision,
+    command: str,
+    initial_result: CommandExecutionResult,
+    send_continuation: Callable[[str], CommandExecutionResult],
+    timeout_seconds: int,
+    max_pages: int,
+    max_bytes: int,
+) -> CommandExecutionResult:
+    if not initial_result.success:
+        return initial_result
+    deadline = time.monotonic() + float(timeout_seconds)
+    output = initial_result.output
+    pages = 0
+    saw_paging = False
+    while (marker := find_paging_marker(output)) is not None:
+        saw_paging = True
+        pages += 1
+        if pages > max_pages:
+            return _paging_failure_result(
+                decision,
+                command,
+                output,
+                f"Exceeded max_pages={max_pages} while continuing paged backup output",
+            )
+        if len(output.encode("utf-8", errors="replace")) > max_bytes:
+            return _paging_failure_result(
+                decision,
+                command,
+                output,
+                f"Exceeded max_bytes={max_bytes} while continuing paged backup output",
+            )
+        if time.monotonic() > deadline:
+            return _paging_failure_result(
+                decision,
+                command,
+                output,
+                f"Timed out waiting for prompt after {timeout_seconds}s while continuing paged backup output",
+            )
+        output = strip_paging_markers(output)
+        continuation = send_continuation(marker.continuation)
+        output += continuation.output
+        if not continuation.success:
+            return _paging_failure_result(
+                decision,
+                command,
+                output,
+                continuation.error or "Paged backup continuation command failed",
+            )
+    if len(output.encode("utf-8", errors="replace")) > max_bytes:
+        return _paging_failure_result(
+            decision,
+            command,
+            output,
+            f"Exceeded max_bytes={max_bytes} while continuing paged backup output",
+        )
+    if saw_paging and not prompt_regex_for_decision(decision).search(output):
+        return _paging_failure_result(
+            decision,
+            command,
+            output,
+            "Paged backup continuation ended before final prompt was detected",
+        )
+    return CommandExecutionResult(command=command, output=strip_paging_markers(output), success=True)
+
+
 def legacy_ssh_options_for_decision(decision: TransportDecision) -> LegacySshOptions | None:
     legacy_families = {DeviceFamily.eltex, DeviceFamily.qtech, DeviceFamily.hpe_comware}
     if decision.family not in legacy_families:
@@ -409,17 +614,35 @@ def build_transport_diagnostic(
     return "; ".join(parts)
 
 
-def paging_diagnostic(decision: TransportDecision, command: str) -> str:
-    return "; ".join(
-        [
-            "Incomplete backup output",
-            f"driver={decision.driver_name}",
-            f"transport={decision.selected_transport.value}",
-            f"family={decision.family.value}",
-            "phase=paging",
-            f"command={mask_secrets(command)}",
-            "reason=paging marker detected",
-        ]
+def paging_diagnostic(
+    decision: TransportDecision,
+    command: str,
+    reason: str = "paging marker detected",
+    *,
+    output: str | None = None,
+) -> str:
+    parts = [
+        "Incomplete backup output",
+        f"driver={decision.driver_name}",
+        f"transport={decision.selected_transport.value}",
+        f"family={decision.family.value}",
+        f"platform={decision.platform or 'unknown'}",
+        "phase=paging",
+        f"command={mask_secrets(command)}",
+        f"reason={_sanitize_diagnostic_text(reason)}",
+    ]
+    snippet = _safe_output_snippet(output or "")
+    if snippet:
+        parts.append(f"last_output={snippet}")
+    return "; ".join(parts)
+
+
+def _paging_failure_result(decision: TransportDecision, command: str, output: str, reason: str) -> CommandExecutionResult:
+    return CommandExecutionResult(
+        command=command,
+        output=output,
+        success=False,
+        error=paging_diagnostic(decision, command, reason, output=output),
     )
 
 

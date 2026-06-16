@@ -107,3 +107,29 @@ def test_excel_lab_backup_rejects_incomplete_paged_output(tmp_path: Path, monkey
         )
     )
     assert "fresh_backup" in decision.denied_gates
+
+
+def test_excel_lab_qtech_backup_path_remains_successful(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("NCP_SECRET_KEY", "excel-lab-secret-key")
+    get_settings.cache_clear()
+    device = load_excel_inventory(
+        write_inventory(
+            tmp_path / "inventory.xlsx",
+            [["Active", "qtech-lab", "QSW-4610", "192.0.2.91", "QTECH", "Switch", "Lab", "NetOps"]],
+        )
+    )[0]
+    state = FileLabState(tmp_path / ".switchfleet_lab")
+    vault = FileCredentialVault(state)
+    vault.create_or_update(name="lab-admin", username="admin", secret="VaultSecret")
+    fake = StaticCommandTransport(output="hostname qtech\nQSW-4610>")
+
+    result = ExcelLabBackupRunner(
+        state,
+        vault,
+        settings=Settings(environment="test", secret_key="excel-lab-secret-key", lab_device_allowlist=device.ip_address),
+        transport_factory=FakeFactory(fake),
+    ).backup_device(device, credential_ref="lab-admin")
+
+    assert result.command_count == 1
+    assert fake.commands == ["terminal length 0", "show running-config"]
+    assert state.latest_backup_for(device.id) is not None

@@ -21,6 +21,7 @@ from app.services.real_lab_apply_runner import (
     RealLabApplyRunner,
     output_has_paging_marker,
     paging_diagnostic,
+    run_read_only_backup_command,
 )
 from app.services.transport_runtime import RuntimeCredentials
 from app.services.vendor_command_templates import RenderedCommand
@@ -181,7 +182,7 @@ class ExcelLabBackupRunner:
                 if output_has_paging_marker(result.output):
                     raise SafetyError(paging_diagnostic(decision, command))
             for command in commands:
-                result = transport.run_command(command, timeout_seconds=timeout)
+                result = run_read_only_backup_command(transport, command, timeout_seconds=timeout)
                 if not result.success:
                     raise SafetyError(mask_secrets(result.error or f"Backup command failed: {command}"))
                 if output_has_paging_marker(result.output):
