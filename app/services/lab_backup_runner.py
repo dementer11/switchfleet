@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.exceptions import SafetyError
-from app.core.transport_strategy import DeviceFamily, TransportKind
+from app.core.transport_strategy import DeviceFamily, TransportDecision, TransportKind
 from app.core.vendor_driver_contracts import get_vendor_driver_contract
 from app.db.models.device import Device
 from app.db.session import SessionLocal
@@ -15,9 +15,10 @@ from app.services.audit_service import AuditService
 from app.services.config_diff_service import ConfigDiffService
 from app.services.credential_vault_service import CredentialVaultService
 from app.services.driver_capability_matrix import DriverCapabilityMatrix
-from app.services.real_lab_apply_runner import LabCommandTransport, LabSshTransportFactory
+from app.services.real_lab_apply_runner import LabCommandTransport, LabSshTransportFactory, output_has_paging_marker, paging_diagnostic
 from app.services.transport_runtime import RuntimeCredentials
 from app.utils.config_sanitizer import sanitize_config
+from app.utils.masking import mask_secrets
 
 
 @dataclass(frozen=True)
@@ -89,7 +90,13 @@ class LabBackupRunner:
             timeout=timeout,
             read_only=True,
         )
-        raw_config = self._collect(transport, tuple(contract.read_only_commands), timeout)
+        raw_config = self._collect(
+            transport,
+            decision,
+            tuple(contract.read_only_setup_commands),
+            tuple(contract.read_only_commands),
+            timeout,
+        )
         sanitized = sanitize_config(raw_config)
         previous = self.snapshots.get_latest_snapshot_for_device(device.id)
         snapshot = self.snapshots.create_snapshot(
@@ -123,14 +130,27 @@ class LabBackupRunner:
             config_hash=sanitized.config_hash,
         )
 
-    def _collect(self, transport: LabCommandTransport, commands: tuple[str, ...], timeout: int) -> str:
+    def _collect(
+        self,
+        transport: LabCommandTransport,
+        decision: TransportDecision,
+        setup_commands: tuple[str, ...],
+        commands: tuple[str, ...],
+        timeout: int,
+    ) -> str:
         outputs: list[str] = []
         try:
             transport.open()
+            for command in setup_commands:
+                result = transport.run_command(command, timeout_seconds=timeout)
+                if output_has_paging_marker(result.output):
+                    raise SafetyError(paging_diagnostic(decision, command))
             for command in commands:
                 result = transport.run_command(command, timeout_seconds=timeout)
                 if not result.success:
-                    raise SafetyError(result.error or f"Backup command failed: {command}")
+                    raise SafetyError(mask_secrets(result.error or f"Backup command failed: {command}"))
+                if output_has_paging_marker(result.output):
+                    raise SafetyError(paging_diagnostic(decision, command))
                 outputs.append(result.output)
         finally:
             transport.close()
