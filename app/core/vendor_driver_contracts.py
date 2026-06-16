@@ -50,6 +50,7 @@ class VendorDriverContract:
     prompt_patterns: tuple[str, ...]
     error_patterns: tuple[str, ...]
     forbidden_command_patterns: tuple[str, ...]
+    read_only_setup_commands: tuple[str, ...] = ()
     requires_enable: bool = False
     requires_config_mode: bool = True
     supports_candidate_config: bool = False
@@ -120,7 +121,7 @@ VENDOR_DRIVER_CONTRACTS: dict[DeviceFamily, VendorDriverContract] = {
         },
         save_or_commit_commands=("write memory",),
         rollback_strategy="preview_required",
-        prompt_patterns=(r"[>#]\s*$",),
+        prompt_patterns=(r"[\w.\-()]+[>#]\s*$", r"[>#]\s*$"),
         error_patterns=(r"% Invalid", r"% Incomplete", r"% Ambiguous"),
         forbidden_command_patterns=COMMON_FORBIDDEN_COMMAND_PATTERNS,
         requires_enable=True,
@@ -183,7 +184,7 @@ VENDOR_DRIVER_CONTRACTS: dict[DeviceFamily, VendorDriverContract] = {
         },
         save_or_commit_commands=("save force",),
         rollback_strategy="preview_required",
-        prompt_patterns=(r"[>\]]\s*$",),
+        prompt_patterns=(r"<[^>\r\n]+>\s*$", r"\[[^\]\r\n]+\]\s*$", r"[\w.\-()]+[>#]\s*$", r"[>\]]\s*$"),
         error_patterns=(r"Error:", r"Unrecognized command"),
         forbidden_command_patterns=COMMON_FORBIDDEN_COMMAND_PATTERNS + (r"\breset saved-configuration\b",),
         apply_support_level=ApplySupportLevel.lab_apply_candidate,
@@ -196,6 +197,7 @@ VENDOR_DRIVER_CONTRACTS: dict[DeviceFamily, VendorDriverContract] = {
         supported_operations=COMMON_LAB_CANDIDATE_OPS,
         forbidden_operations=frozenset(),
         read_only_commands=("display current-configuration",),
+        read_only_setup_commands=("screen-length disable", "screen-length 0 temporary"),
         config_command_templates={
             VendorOperation.vlan_create: ("system-view", "vlan {vlan_id}", "name {name}", "quit", "save force"),
             VendorOperation.vlan_assign_port: (
@@ -209,7 +211,7 @@ VENDOR_DRIVER_CONTRACTS: dict[DeviceFamily, VendorDriverContract] = {
         },
         save_or_commit_commands=("save force",),
         rollback_strategy="preview_required",
-        prompt_patterns=(r"[>\]]\s*$",),
+        prompt_patterns=(r"<[^>\r\n]+>\s*$", r"\[[^\]\r\n]+\]\s*$", r"[\w.\-()]+[>#]\s*$", r"[>\]]\s*$"),
         error_patterns=(r"Error:", r"Wrong parameter"),
         forbidden_command_patterns=COMMON_FORBIDDEN_COMMAND_PATTERNS + (r"\breset saved-configuration\b",),
         apply_support_level=ApplySupportLevel.lab_apply_candidate,
@@ -263,10 +265,11 @@ VENDOR_DRIVER_CONTRACTS: dict[DeviceFamily, VendorDriverContract] = {
         supported_operations=READ_BACKUP_ONLY,
         forbidden_operations=COMMON_LAB_CANDIDATE_OPS - READ_BACKUP_ONLY,
         read_only_commands=("show running-config",),
+        read_only_setup_commands=("terminal length 0",),
         config_command_templates={},
         save_or_commit_commands=(),
         rollback_strategy="unsupported_until_certified",
-        prompt_patterns=(r"[>#]\s*$",),
+        prompt_patterns=(r"[\w.\-()]+[>#]\s*$", r"[>#]\s*$"),
         error_patterns=(r"Error", r"%"),
         forbidden_command_patterns=COMMON_FORBIDDEN_COMMAND_PATTERNS,
         apply_support_level=ApplySupportLevel.read_only_only,
@@ -294,7 +297,7 @@ VENDOR_DRIVER_CONTRACTS: dict[DeviceFamily, VendorDriverContract] = {
         },
         save_or_commit_commands=("copy running-config startup-config",),
         rollback_strategy="preview_required",
-        prompt_patterns=(r"[>#]\s*$",),
+        prompt_patterns=(r"[\w.\-]+[>#]\s*$", r"[>#]\s*$"),
         error_patterns=(r"Invalid", r"%"),
         forbidden_command_patterns=COMMON_FORBIDDEN_COMMAND_PATTERNS,
         apply_support_level=ApplySupportLevel.lab_apply_candidate,
@@ -345,10 +348,11 @@ VENDOR_DRIVER_CONTRACTS: dict[DeviceFamily, VendorDriverContract] = {
         supported_operations=READ_BACKUP_ONLY,
         forbidden_operations=COMMON_LAB_CANDIDATE_OPS - READ_BACKUP_ONLY,
         read_only_commands=("show running-config",),
+        read_only_setup_commands=("terminal datadump",),
         config_command_templates={},
         save_or_commit_commands=(),
         rollback_strategy="unsupported_until_certified",
-        prompt_patterns=(r"[>#]\s*$",),
+        prompt_patterns=(r"[\w.\-()]+[>#]\s*$", r"[>#]\s*$"),
         error_patterns=(r"Error",),
         forbidden_command_patterns=COMMON_FORBIDDEN_COMMAND_PATTERNS,
         apply_support_level=ApplySupportLevel.read_only_only,

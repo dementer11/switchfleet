@@ -77,3 +77,22 @@ def test_lab_backup_runner_denies_unknown_and_icmp() -> None:
         assert "Unknown" in str(exc) or "unsupported" in str(exc).casefold()
     else:
         raise AssertionError("Unknown device backup was not denied")
+
+
+def test_lab_backup_runner_comware_sends_paging_disable_before_backup() -> None:
+    session = SessionLocal()
+    device = create_lab_device(session, vendor="3Com", model="S4210", driver_name="")
+    credential_ref = create_secret(session)
+    fake = FakeReadOnlyTransport()
+
+    LabBackupRunner(
+        session,
+        settings=Settings(
+            environment="test",
+            secret_key=SECRET_KEY,
+            lab_device_allowlist=str(device.id),
+        ),
+        transport_factory=FakeReadOnlyFactory(fake),
+    ).backup_device(device, credential_ref=credential_ref, actor="netadmin")
+
+    assert fake.commands == ["screen-length disable", "screen-length 0 temporary", "display current-configuration"]

@@ -14,7 +14,14 @@ from app.services.excel_lab_safety import ExcelLabSafetyDecision
 from app.services.fake_lab_transport import FakeLabTransport
 from app.services.file_credential_vault import FileCredentialVault
 from app.services.file_lab_state import FileLabState
-from app.services.real_lab_apply_runner import LabCommandTransport, LabSshTransportFactory, RealLabApplyResult, RealLabApplyRunner
+from app.services.real_lab_apply_runner import (
+    LabCommandTransport,
+    LabSshTransportFactory,
+    RealLabApplyResult,
+    RealLabApplyRunner,
+    output_has_paging_marker,
+    paging_diagnostic,
+)
 from app.services.transport_runtime import RuntimeCredentials
 from app.services.vendor_command_templates import RenderedCommand
 from app.transports.base import CommandExecutionResult
@@ -123,7 +130,13 @@ class ExcelLabBackupRunner:
             timeout=timeout,
             read_only=True,
         )
-        raw_config = self._collect(transport, tuple(contract.read_only_commands), timeout)
+        raw_config = self._collect(
+            transport,
+            decision,
+            tuple(contract.read_only_setup_commands),
+            tuple(contract.read_only_commands),
+            timeout,
+        )
         sanitized = sanitize_config(raw_config)
         record = self.state.save_backup(
             device.id,
@@ -152,14 +165,27 @@ class ExcelLabBackupRunner:
             config_hash=sanitized.config_hash,
         )
 
-    def _collect(self, transport: LabCommandTransport, commands: tuple[str, ...], timeout: int) -> str:
+    def _collect(
+        self,
+        transport: LabCommandTransport,
+        decision: TransportDecision,
+        setup_commands: tuple[str, ...],
+        commands: tuple[str, ...],
+        timeout: int,
+    ) -> str:
         outputs: list[str] = []
         try:
             transport.open()
+            for command in setup_commands:
+                result = transport.run_command(command, timeout_seconds=timeout)
+                if output_has_paging_marker(result.output):
+                    raise SafetyError(paging_diagnostic(decision, command))
             for command in commands:
                 result = transport.run_command(command, timeout_seconds=timeout)
                 if not result.success:
-                    raise SafetyError(result.error or f"Backup command failed: {command}")
+                    raise SafetyError(mask_secrets(result.error or f"Backup command failed: {command}"))
+                if output_has_paging_marker(result.output):
+                    raise SafetyError(paging_diagnostic(decision, command))
                 outputs.append(result.output)
         finally:
             transport.close()
