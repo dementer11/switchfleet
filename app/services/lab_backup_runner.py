@@ -15,7 +15,13 @@ from app.services.audit_service import AuditService
 from app.services.config_diff_service import ConfigDiffService
 from app.services.credential_vault_service import CredentialVaultService
 from app.services.driver_capability_matrix import DriverCapabilityMatrix
-from app.services.real_lab_apply_runner import LabCommandTransport, LabSshTransportFactory, output_has_paging_marker, paging_diagnostic
+from app.services.real_lab_apply_runner import (
+    LabCommandTransport,
+    LabSshTransportFactory,
+    output_has_paging_marker,
+    paging_diagnostic,
+    run_read_only_backup_command,
+)
 from app.services.transport_runtime import RuntimeCredentials
 from app.utils.config_sanitizer import sanitize_config
 from app.utils.masking import mask_secrets
@@ -146,7 +152,7 @@ class LabBackupRunner:
                 if output_has_paging_marker(result.output):
                     raise SafetyError(paging_diagnostic(decision, command))
             for command in commands:
-                result = transport.run_command(command, timeout_seconds=timeout)
+                result = run_read_only_backup_command(transport, command, timeout_seconds=timeout)
                 if not result.success:
                     raise SafetyError(mask_secrets(result.error or f"Backup command failed: {command}"))
                 if output_has_paging_marker(result.output):
