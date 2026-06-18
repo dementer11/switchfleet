@@ -19,6 +19,7 @@ from app.services.real_lab_apply_runner import (
     LabSshTransportFactory,
     RealLabApplyResult,
     RealLabApplyRunner,
+    clean_backup_output,
     output_has_paging_marker,
     paging_diagnostic,
     run_read_only_backup_command,
@@ -187,7 +188,7 @@ class ExcelLabBackupRunner:
                     raise SafetyError(mask_secrets(result.error or f"Backup command failed: {command}"))
                 if output_has_paging_marker(result.output):
                     raise SafetyError(paging_diagnostic(decision, command))
-                outputs.append(result.output)
+                outputs.append(clean_backup_output(result.output, command, decision))
         finally:
             transport.close()
         return "\n".join(outputs)

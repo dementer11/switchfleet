@@ -132,4 +132,8 @@ def test_excel_lab_qtech_backup_path_remains_successful(tmp_path: Path, monkeypa
 
     assert result.command_count == 1
     assert fake.commands == ["terminal length 0", "show running-config"]
-    assert state.latest_backup_for(device.id) is not None
+    backup = state.latest_backup_for(device.id)
+    assert backup is not None
+    config_text = (state.paths.root / backup["config_path"]).read_text(encoding="utf-8")
+    assert "QSW-4610>" not in config_text
+    assert "hostname qtech" in config_text
