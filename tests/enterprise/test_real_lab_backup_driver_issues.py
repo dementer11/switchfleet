@@ -10,6 +10,7 @@ from app.services.real_lab_apply_runner import (
     NetmikoCommandTransport,
     ParamikoCommandTransport,
     build_transport_diagnostic,
+    clean_backup_output,
     legacy_ssh_options_for_decision,
     output_has_paging_marker,
     prompt_regex_for_decision,
@@ -18,6 +19,7 @@ from app.services.real_lab_apply_runner import (
 from app.services.transport_runtime import RuntimeCredentials
 from app.services.vendor_command_templates import VendorCommandTemplateService
 from app.transports.base import CommandExecutionResult
+from app.utils.config_sanitizer import sanitize_config
 
 
 def _decision(
@@ -142,7 +144,132 @@ def test_paging_markers_are_detected_case_insensitively() -> None:
     assert output_has_paging_marker("Press any key to continue")
     assert output_has_paging_marker("press ENTER to continue")
     assert output_has_paging_marker("\n More \n")
-    assert strip_paging_markers("page1\n---- More ----\npage2\n--More--") == "page1\n\npage2\n"
+    assert strip_paging_markers("page1\n---- More ----\npage2\n--More--") == "page1\npage2"
+
+
+def test_backup_output_cleanup_removes_ansi_control_command_echo_and_prompt() -> None:
+    decision = _decision(DeviceFamily.eltex, driver_name="EltexMESDriver")
+    raw = "\r\nshow running-config\r\nhostname edgex\x08\x00\x1b[K\nend\n\x1b[27m\nSW-01#\x1b"
+
+    cleaned = clean_backup_output(raw, "show running-config", decision)
+
+    assert cleaned == "hostname edge\nend"
+    assert "\x1b" not in cleaned
+    assert "\x1b[K" not in cleaned
+    assert "\x1b[27m" not in cleaned
+
+
+def test_backup_output_cleanup_handles_eltex_style_artifacts_without_dropping_config() -> None:
+    decision = _decision(DeviceFamily.eltex, driver_name="EltexMESDriver")
+    raw = (
+        "show running-config\n"
+        "#ISS config ver 1\n"
+        "hostname \"switch-name\"\n"
+        "--More--\n"
+        "vlan 82,101,1316\x1b[K\n"
+        "interface gigabitethernet 0/1\n"
+        " switchport mode trunk\n"
+        "end\n"
+        "\x1b[27m\n"
+        "SW-01#"
+    )
+
+    cleaned = clean_backup_output(raw, "show running-config", decision)
+
+    assert cleaned.startswith("#ISS config ver 1")
+    assert "show running-config" not in cleaned
+    assert "--More--" not in cleaned
+    assert "\x1b" not in cleaned
+    assert cleaned.endswith("end")
+    assert 'hostname "switch-name"' in cleaned
+    assert "vlan 82,101,1316" in cleaned
+    assert "switchport mode trunk" in cleaned
+
+
+def test_backup_output_cleanup_handles_comware_style_artifacts() -> None:
+    decision = _decision(DeviceFamily.hpe_comware, driver_name="HPComwareDriver", transport=TransportKind.netmiko)
+    raw = (
+        "display current-configuration\r\n"
+        "#\r\n"
+        "sysname lab-comware\r\n"
+        "---- More ----\r\n"
+        "interface Vlan-interface1\r\n"
+        "return\r\n"
+        "<LAB-COMWARE-01>\r\n"
+    )
+
+    cleaned = clean_backup_output(raw, "display current-configuration", decision)
+
+    assert cleaned == "#\nsysname lab-comware\ninterface Vlan-interface1\nreturn"
+
+
+@pytest.mark.parametrize(
+    ("family", "driver", "transport", "command", "prompt"),
+    [
+        (DeviceFamily.huawei_vrp, "HuaweiVRPDriver", TransportKind.netmiko, "display current-configuration", "<Huawei>"),
+        (DeviceFamily.cisco_ios, "CiscoIOSDriver", TransportKind.netmiko, "show running-config", "SW-01#"),
+        (DeviceFamily.dell_os, "DellPowerConnectDriver", TransportKind.netmiko, "show running-config", "Dell-SW>"),
+        (DeviceFamily.bulat, "BulatBSDriver", TransportKind.custom_cli, "show running-config", "BULAT-SW#"),
+    ],
+)
+def test_backup_output_cleanup_generic_vendor_regressions(
+    family: DeviceFamily,
+    driver: str,
+    transport: TransportKind,
+    command: str,
+    prompt: str,
+) -> None:
+    decision = _decision(family, driver_name=driver, transport=transport)
+    raw = f"{command}\n! config header\nhostname lab-switch\nip route 0.0.0.0 0.0.0.0 192.0.2.1\nend\n{prompt}"
+
+    cleaned = clean_backup_output(raw, command, decision)
+
+    assert command not in cleaned
+    assert cleaned.endswith("end")
+    assert "! config header" in cleaned
+    assert "ip route 0.0.0.0 0.0.0.0 192.0.2.1" in cleaned
+
+
+def test_backup_output_cleanup_preserves_valid_config_lines() -> None:
+    decision = _decision(DeviceFamily.cisco_ios, driver_name="CiscoIOSDriver", transport=TransportKind.netmiko)
+    valid_lines = [
+        "#Building configuration...",
+        "#ISS config ver...",
+        "!",
+        'hostname "switch-name"',
+        "username admin password encrypted <redacted>",
+        "snmp community <redacted>",
+        "vlan 82,101,1316",
+        "ip route 0.0.0.0 0.0.0.0 192.0.2.1",
+        "authorized-manager ip-source 192.0.2.10 service ssh",
+        "interface gigabitethernet 0/1",
+        " switchport mode trunk",
+    ]
+    raw = "show running-config\n" + "\n".join(valid_lines) + "\nSW-01#"
+
+    cleaned = clean_backup_output(raw, "show running-config", decision)
+
+    for line in valid_lines:
+        assert line in cleaned
+
+
+def test_backup_output_cleanup_does_not_strip_final_config_comment_as_prompt() -> None:
+    decision = _decision(DeviceFamily.cisco_ios, driver_name="CiscoIOSDriver", transport=TransportKind.netmiko)
+
+    cleaned = clean_backup_output("show running-config\nbanner motd #", "show running-config", decision)
+
+    assert cleaned == "banner motd #"
+
+
+def test_backup_output_cleanup_stabilizes_config_hash() -> None:
+    decision = _decision(DeviceFamily.eltex, driver_name="EltexMESDriver")
+    clean = "#ISS config ver 1\nhostname lab-switch\nend"
+    noisy = "show running-config\r\n#ISS config ver 1\x1b[K\r\n--More--\r\nhostname lab-switch\r\nend\r\n\x1b[27m\r\nSW-01#"
+
+    clean_hash = sanitize_config(clean_backup_output(clean, "show running-config", decision)).config_hash
+    noisy_hash = sanitize_config(clean_backup_output(noisy, "show running-config", decision)).config_hash
+
+    assert noisy_hash == clean_hash
 
 
 def test_paramiko_backup_continues_comware_paging_with_space() -> None:

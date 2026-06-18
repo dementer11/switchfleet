@@ -26,6 +26,12 @@ PAGING_MARKER_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"press ENTER to continue", re.IGNORECASE),
     re.compile(r"^\s*[<\-\s]*More[>\-\s:]*$", re.IGNORECASE | re.MULTILINE),
 )
+ANSI_ESCAPE_PATTERN = re.compile(
+    r"(?:\x1B\[[0-?]*[ -/]*[@-~]|\x1B\][^\x07]*(?:\x07|\x1B\\)|\x1B[@-Z\\-_]|\x1B)"
+)
+BACKSPACE_PATTERN = re.compile(r"[^\n]\x08")
+SAFE_CONTROL_CHARS_PATTERN = re.compile(r"[\x00\x07\x0B\x0C\x0E-\x1A\x1C-\x1F\x7F]")
+GENERIC_PROMPT_LINE_PATTERN = re.compile(r"(?:<[^<>\s]+>|\[[^\[\]\s]+\]|[A-Za-z0-9_.()/\-]+[>#])")
 IPV4_PATTERN = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 COMMON_PROMPT_PATTERNS: tuple[str, ...] = (
     r"<[^>\r\n]+>\s*$",
@@ -496,10 +502,27 @@ def find_paging_marker(output: str) -> PagingMarker | None:
 
 
 def strip_paging_markers(output: str) -> str:
-    cleaned = output
-    for pattern in PAGING_MARKER_PATTERNS:
-        cleaned = pattern.sub("", cleaned)
-    return cleaned
+    cleaned_lines: list[str] = []
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped and any(pattern.fullmatch(stripped) for pattern in PAGING_MARKER_PATTERNS):
+            continue
+        cleaned_line = line
+        for pattern in PAGING_MARKER_PATTERNS:
+            cleaned_line = pattern.sub("", cleaned_line)
+        cleaned_lines.append(cleaned_line)
+    return "\n".join(cleaned_lines)
+
+
+def clean_backup_output(output: str, command: str, decision: TransportDecision) -> str:
+    """Remove terminal artifacts from completed read-only backup output."""
+
+    cleaned = _normalize_terminal_text(output)
+    cleaned = strip_paging_markers(cleaned)
+    lines = _normalize_backup_lines(cleaned)
+    lines = _strip_command_echo(lines, command)
+    lines = _strip_final_prompt_line(lines, decision)
+    return "\n".join(lines)
 
 
 def run_read_only_backup_command(
@@ -661,6 +684,68 @@ def _dedupe_patterns(patterns: tuple[str, ...]) -> tuple[str, ...]:
             seen.add(pattern)
             unique.append(pattern)
     return tuple(unique)
+
+
+def _normalize_terminal_text(output: str) -> str:
+    text = output.replace("\r\n", "\n").replace("\r", "\n")
+    text = ANSI_ESCAPE_PATTERN.sub("", text)
+    while BACKSPACE_PATTERN.search(text):
+        text = BACKSPACE_PATTERN.sub("", text)
+    text = text.replace("\x08", "")
+    return SAFE_CONTROL_CHARS_PATTERN.sub("", text)
+
+
+def _normalize_backup_lines(output: str) -> list[str]:
+    lines = [line.rstrip() for line in output.split("\n")]
+    lines = ["" if not line.strip() else line for line in lines]
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+    normalized: list[str] = []
+    blank_run = 0
+    for line in lines:
+        if line:
+            blank_run = 0
+            normalized.append(line)
+        else:
+            blank_run += 1
+            if blank_run <= 1:
+                normalized.append(line)
+    return normalized
+
+
+def _strip_command_echo(lines: list[str], command: str) -> list[str]:
+    expected = _canonical_command(command)
+    for index, line in enumerate(lines):
+        if not line.strip():
+            continue
+        if _canonical_command(line) == expected:
+            return lines[:index] + lines[index + 1 :]
+        return lines
+    return lines
+
+
+def _strip_final_prompt_line(lines: list[str], decision: TransportDecision) -> list[str]:
+    trimmed = list(lines)
+    while trimmed and not trimmed[-1]:
+        trimmed.pop()
+    if trimmed and _is_generic_prompt_line(trimmed[-1], decision):
+        trimmed.pop()
+    while trimmed and not trimmed[-1]:
+        trimmed.pop()
+    return trimmed
+
+
+def _is_generic_prompt_line(line: str, decision: TransportDecision) -> bool:
+    candidate = line.strip()
+    if not candidate or not GENERIC_PROMPT_LINE_PATTERN.fullmatch(candidate):
+        return False
+    return prompt_regex_for_decision(decision).search(candidate) is not None
+
+
+def _canonical_command(command: str) -> str:
+    return " ".join(command.strip().split()).casefold()
 
 
 def _safe_output_snippet(output: str, limit: int = 300) -> str:
