@@ -319,8 +319,17 @@ class DriverCapabilityMatrix:
     ) -> DriverRuntimeProfile:
         text = f"{vendor} {model or ''} {platform or ''}"
         normalized_text = normalize(text)
+        normalized_vendor = normalize(vendor)
+        normalized_model = normalize(model)
         if "icmp" in normalized_text:
             return self.get_profile(DeviceFamily.icmp) or UNSUPPORTED_PROFILE
+        if (
+            normalized_vendor in {"unknown", "n/a", "na", "not known", "unidentified"}
+            or normalized_vendor.startswith("unknown ")
+            or normalized_vendor.startswith("snmp unknown")
+            or normalized_model in {"unknown", "unknown product", "unknown snmp product"}
+        ):
+            return UNSUPPORTED_PROFILE
         if "unknown product" in normalized_text or "unknown snmp product" in normalized_text:
             return UNSUPPORTED_PROFILE
         if "securitycode" in normalized_text or "continent" in normalized_text:

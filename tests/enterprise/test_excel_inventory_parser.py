@@ -4,6 +4,8 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
+from app.core.transport_strategy import DeviceFamily, TransportKind
+from app.services.driver_capability_matrix import DriverCapabilityMatrix
 from app.services.excel_inventory import ExcelInventoryError, load_excel_inventory, resolve_excel_device
 from tests.enterprise.excel_lab_helpers import EXCEL_HEADERS, write_inventory
 
@@ -62,3 +64,23 @@ def test_excel_inventory_missing_columns_and_duplicate_selector_are_friendly(tmp
         assert "multiple rows" in str(exc).casefold()
     else:
         raise AssertionError("Duplicate Excel selector was not rejected")
+
+
+def test_excel_unknown_vendor_cannot_be_upgraded_to_a_candidate_by_model_hints(tmp_path: Path) -> None:
+    device = load_excel_inventory(
+        write_inventory(
+            tmp_path / "unknown-vendor.xlsx",
+            [["Active", "unknown-cisco", "Catalyst 2960", "192.0.2.99", "Unknown", "Switch", "Lab", "NetOps"]],
+        )
+    )[0]
+
+    decision = DriverCapabilityMatrix().decide(
+        vendor=device.vendor,
+        model=device.model,
+        platform=device.platform,
+        driver_name=device.driver_name,
+    )
+
+    assert device.driver_name == "CiscoIOSDriver"
+    assert decision.family == DeviceFamily.unknown
+    assert decision.selected_transport == TransportKind.unsupported

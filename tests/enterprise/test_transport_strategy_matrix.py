@@ -47,7 +47,7 @@ def test_driver_capability_matrix_selects_expected_runtime_profiles(
 def test_generic_icmp_unknown_and_uncertified_vendor_decisions_fail_safely() -> None:
     matrix = DriverCapabilityMatrix()
 
-    generic = matrix.decide(vendor="Unknown", model="Unknown", driver_name="GenericSSHDriver")
+    generic = matrix.decide(vendor="GenericSSH", model="Manual profile", driver_name="GenericSSHDriver")
     huawei_unknown = matrix.decide(vendor="Huawei", model="Unknown Product")
     ambiguous_huawei = matrix.decide(vendor="Huawei", model="Unknown Router")
     unknown_snmp = matrix.decide(vendor="Unknown", model="Unknown SNMP Product")
@@ -87,6 +87,8 @@ def test_hard_fail_closed_profiles_cannot_be_overridden_by_metadata() -> None:
     dlink_family = matrix.decide(vendor="D-Link", model="DES1100", family=DeviceFamily.cisco_ios)
     security_driver = matrix.decide(vendor="SecurityCode", model="Continent-500", driver_name="CiscoIOSDriver")
     security_family = matrix.decide(vendor="SecurityCode", model="Continent-500", family=DeviceFamily.cisco_ios)
+    unknown_cisco_driver = matrix.decide(vendor="Unknown", model="Catalyst 2960", driver_name="CiscoIOSDriver")
+    unknown_comware_family = matrix.decide(vendor="SNMP Unknown", model="HPE 1910", family=DeviceFamily.hpe_comware)
 
     assert huawei_unknown_driver.family == DeviceFamily.unknown
     assert huawei_unknown_driver.selected_transport == TransportKind.unsupported
@@ -104,6 +106,10 @@ def test_hard_fail_closed_profiles_cannot_be_overridden_by_metadata() -> None:
     assert security_driver.selected_transport == TransportKind.unsupported
     assert security_family.family == DeviceFamily.non_switch
     assert security_family.selected_transport == TransportKind.unsupported
+    assert unknown_cisco_driver.family == DeviceFamily.unknown
+    assert unknown_cisco_driver.selected_transport == TransportKind.unsupported
+    assert unknown_comware_family.family == DeviceFamily.unknown
+    assert unknown_comware_family.selected_transport == TransportKind.unsupported
     assert all(
         decision.config_apply_allowed is False
         for decision in (
@@ -115,5 +121,7 @@ def test_hard_fail_closed_profiles_cannot_be_overridden_by_metadata() -> None:
             dlink_family,
             security_driver,
             security_family,
+            unknown_cisco_driver,
+            unknown_comware_family,
         )
     )

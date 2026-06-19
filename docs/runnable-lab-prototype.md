@@ -21,7 +21,7 @@ The Excel file is the primary lab input. Required columns:
 
 Rows with empty device data or explicit service rows are ignored. Unknown or ambiguous vendor/model rows fail closed through the existing driver runtime matrix.
 
-The repository includes `examples/lab/inventory.example.xlsx` for local smoke tests. It uses private lab IP addresses and covers the main runtime classifications, including candidate switch families, QTECH, unmanaged D-Link, non-switch SecurityCode Continent, Unknown SNMP inventory-only records, and ICMP health-only records.
+The repository includes `examples/lab/inventory.example.xlsx` for local smoke tests. It uses documentation IP addresses and covers the main runtime classifications, including candidate switch families, QTECH, unmanaged D-Link, non-switch SecurityCode Continent, Unknown SNMP inventory-only records, and ICMP health-only records.
 
 ## State
 
@@ -33,12 +33,15 @@ Excel lab mode stores local state under `.switchfleet_lab/` by default:
   backups/
   audit.jsonl
   locks.json
+  lockfiles/
   dry_runs.json
+  evaluations.json
   lab_validations.json
   executions/
 ```
 
 Credential payloads are encrypted with `NCP_SECRET_KEY`. Plaintext secrets are not written to state, output, audit, or reports.
+`lockfiles/` contains atomic per-device execution guards; an existing guard fails closed rather than allowing concurrent lab apply for the same device.
 
 ## Doctor
 
@@ -90,7 +93,7 @@ Dry-run does not open SSH and does not decrypt credentials. It renders existing 
 switchfleet inventory.xlsx evaluate-apply --device 192.0.2.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
 ```
 
-Evaluate does not open SSH and does not decrypt credentials. It checks allowlist, credential reference, fresh sanitized backup, lab certification record, dry-run hash for the same device and operation, runtime decision, vendor contract, and lock conflicts.
+Evaluate does not open SSH and does not decrypt credentials. It checks allowlist, credential reference, fresh sanitized backup, lab certification record, dry-run hash for the same device and operation, runtime decision, vendor contract, and lock conflicts. It stores a sanitized evaluation record bound to the device, credential reference, runtime decision, operation, and command hash.
 
 ## Certification
 
@@ -99,7 +102,7 @@ switchfleet inventory.xlsx certify --device 192.0.2.67 --capability vlan_create 
 switchfleet inventory.xlsx certification-report
 ```
 
-Certification records lab-only evidence in local file state. It is not production certification and does not run commands by itself. Config capability certification requires a usable credential reference, allowlisted device, fresh sanitized backup, and stored dry-run for that device/capability.
+Certification records lab-only evidence in local file state. It is not production certification and does not run commands by itself. Backup capability certification requires a fresh sanitized backup captured for the same device. Config capability certification requires a usable credential reference, allowlisted device, fresh sanitized backup, stored dry-run, and a matching stored evaluation bound to the same vendor, model, driver, platform, family, transport, credential, and command hash. Before certification, that evaluation may be denied only because the lab-validation gate has not yet been satisfied.
 
 ## Execute
 

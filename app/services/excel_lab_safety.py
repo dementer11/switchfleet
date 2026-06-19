@@ -52,6 +52,10 @@ class ExcelLabSafetyDecision:
     denied_gates: list[str] = field(default_factory=list)
     safe_command_plan: list[LabApplyCommand] = field(default_factory=list)
     internal_commands: list[RenderedCommand] = field(default_factory=list)
+    device_id: str | None = None
+    operation: str | None = None
+    credential_ref: str | None = None
+    simulation_hash: str | None = None
     command_hash: str | None = None
     selected_transport: str | None = None
     driver_family: str | None = None
@@ -199,10 +203,20 @@ class ExcelLabSafetyService:
         else:
             self._deny("fresh_backup", "A sanitized Excel lab backup is required before config apply", reasons, denied)
 
-        if request.operation == VendorOperation.read_backup or self.state.latest_validation_for(request.device.id, request.operation.value):
+        validation = self.state.latest_validation_for_runtime(
+            request.device.id,
+            request.operation.value,
+            vendor=request.device.vendor,
+            model=request.device.model,
+            driver_name=request.device.driver_name,
+            platform=request.device.platform,
+            family=decision.family.value,
+            selected_transport=decision.selected_transport.value,
+        )
+        if request.operation == VendorOperation.read_backup or validation:
             satisfied.add("lab_validation")
         else:
-            self._deny("lab_validation", "A lab certification record is required before config apply", reasons, denied)
+            self._deny("lab_validation", "A runtime-matching lab certification record is required before config apply", reasons, denied)
 
         internal_commands, command_errors = self._render_commands(decision.family, request.operation, request.command_parameters)
         safe_plan = [LabApplyCommand(command=command.redacted() if command.secret else mask_secrets(command.command), secret=command.secret) for command in internal_commands]
@@ -247,6 +261,10 @@ class ExcelLabSafetyService:
                 denied_gates=ordered_denied,
                 safe_command_plan=safe_plan,
                 internal_commands=internal_commands,
+                device_id=request.device.id,
+                operation=request.operation.value,
+                credential_ref=request.credential_ref,
+                simulation_hash=request.simulation_hash,
                 command_hash=computed_hash,
                 selected_transport=decision.selected_transport.value,
                 driver_family=decision.family.value,

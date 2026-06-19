@@ -366,6 +366,13 @@ import scripts.excel_lab as cli
 cli.main(["--state-dir", sys.argv[2], sys.argv[1], "add-credential", "--name", "lab-admin", "--username", "admin", "--password-env", "SWITCHFLEET_TEST_PASSWORD"])
 cli.main(["--state-dir", sys.argv[2], sys.argv[1], "dry-run", "--device", "sw1-lab", "--operation", "vlan_create", "--vlan-id", "123", "--name", "TEST"])
 cli.main(["--state-dir", sys.argv[2], sys.argv[1], "evaluate-apply", "--device", "sw1-lab", "--credential", "lab-admin", "--operation", "vlan_create", "--vlan-id", "123", "--name", "TEST", "--simulation-hash", "missing"])
+try:
+    cli.main(["--state-dir", sys.argv[2], sys.argv[1], "backup", "--device", "sw1-lab", "--credential", "lab-admin"])
+except SystemExit as exc:
+    assert "NCP_LAB_DEVICE_ALLOWLIST" in str(exc)
+else:
+    raise AssertionError("backup unexpectedly succeeded without allowlist")
+cli.main(["--state-dir", sys.argv[2], sys.argv[1], "execute-apply", "--device", "sw1-lab", "--credential", "lab-admin", "--operation", "vlan_create", "--vlan-id", "123", "--name", "TEST", "--simulation-hash", "missing"])
 """
     result = subprocess.run(
         [sys.executable, "-c", code, str(inventory), str(state_dir)],
@@ -417,6 +424,8 @@ def test_runnable_lab_docs_keep_required_workflow_order() -> None:
     assert docs.index("switchfleet inventory.xlsx backup") < docs.index("switchfleet inventory.xlsx dry-run")
     assert docs.index("switchfleet inventory.xlsx dry-run") < docs.index("switchfleet inventory.xlsx evaluate-apply")
     assert docs.index("switchfleet inventory.xlsx evaluate-apply") < docs.index("switchfleet inventory.xlsx certify")
+    assert "evaluations.json" in docs
+    assert "matching stored evaluation" in docs
     assert docs.index("switchfleet inventory.xlsx certify") < docs.index("switchfleet inventory.xlsx execute-apply")
 
 

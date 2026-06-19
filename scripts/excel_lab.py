@@ -141,12 +141,13 @@ def _dispatch(args: argparse.Namespace) -> dict[str, Any]:
             "command_hash": hash_value,
         }
     if args.command == "evaluate-apply":
-        decision, _transport_decision = _evaluate(state, devices, args, require_real_apply=False)
+        decision, _transport_decision = _evaluate(state, devices, args, require_real_apply=False, record_evaluation=True)
         return decision.to_dict()
     if args.command == "certify":
         device = resolve_excel_device(devices, args.device)
         capability = _certification_capability(args.capability)
         _assert_certification_allowed(state, device, capability, args.credential)
+        decision = _decision_for_device(device)
         record = state.save_lab_validation(
             {
                 "device_id": device.id,
@@ -155,6 +156,9 @@ def _dispatch(args: argparse.Namespace) -> dict[str, Any]:
                 "vendor": device.vendor,
                 "model": device.model,
                 "driver_name": device.driver_name,
+                "platform": device.platform,
+                "family": decision.family.value,
+                "selected_transport": decision.selected_transport.value,
                 "capability": capability.value,
                 "production_certified": False,
                 "evidence": "Excel lab operator certification record; validate on real firmware before production use.",
@@ -286,19 +290,48 @@ def _evaluate(
     args: argparse.Namespace,
     *,
     require_real_apply: bool,
+    record_evaluation: bool = False,
 ):
     device = resolve_excel_device(devices, args.device)
+    operation = VendorOperation(args.operation)
+    parameters = _command_parameters(args)
     service = ExcelLabSafetyService(state, _vault(state), settings=get_settings())
-    return service.evaluate(
+    decision, transport_decision = service.evaluate(
         ExcelLabSafetyRequest(
             device=device,
-            operation=VendorOperation(args.operation),
+            operation=operation,
             credential_ref=args.credential,
-            command_parameters=_command_parameters(args),
+            command_parameters=parameters,
             simulation_hash=args.simulation_hash,
             require_real_apply=require_real_apply,
         )
     )
+    if record_evaluation:
+        dry_run = state.get_dry_run(args.simulation_hash or "", device_id=device.id, operation=operation.value) if args.simulation_hash else None
+        state.save_evaluation(
+            {
+                "device_id": device.id,
+                "device_label": device.label,
+                "operation": operation.value,
+                "credential_ref": args.credential,
+                "simulation_hash": args.simulation_hash,
+                "command_hash": decision.command_hash,
+                "private_command_hash": (dry_run or {}).get("private_command_hash"),
+                "vendor": device.vendor,
+                "model": device.model,
+                "driver_name": device.driver_name,
+                "platform": device.platform,
+                "allowed": decision.allowed,
+                "satisfied_gates": decision.satisfied_gates,
+                "denied_gates": decision.denied_gates,
+                "reasons": decision.reasons,
+                "warnings": decision.warnings,
+                "driver_family": decision.driver_family,
+                "selected_transport": decision.selected_transport,
+                "real_apply_requested": decision.real_apply_requested,
+            }
+        )
+    return decision, transport_decision
 
 
 def _render(device: ExcelInventoryDevice, operation: VendorOperation, parameters: dict[str, Any]):
@@ -467,6 +500,11 @@ def _assert_certification_allowed(
     if capability == VendorOperation.read_backup:
         if decision.selected_transport.value in {"unsupported", "icmp_only"} or not contract.read_only_commands:
             raise SystemExit(f"{decision.family.value} cannot be certified for CLI backup in Excel lab mode")
+        latest_backup = state.latest_backup_for(device.id)
+        if not latest_backup:
+            raise SystemExit("A fresh sanitized backup is required before certifying CLI backup")
+        if not _backup_is_fresh(latest_backup):
+            raise SystemExit(f"A sanitized backup newer than {_backup_max_age_hours()} hours is required before certifying CLI backup")
         return
     blocked_families = {"unknown", "generic_ssh", "icmp", "limited_web", "non_switch", "qtech", "eltex", "bulat"}
     if decision.family.value in blocked_families or decision.selected_transport.value in {"unsupported", "icmp_only"}:
@@ -478,18 +516,65 @@ def _assert_certification_allowed(
         raise SystemExit("A sanitized backup is required before certifying config apply")
     if not _backup_is_fresh(latest_backup):
         raise SystemExit(f"A sanitized backup newer than {_backup_max_age_hours()} hours is required before certifying config apply")
-    if not _has_stored_dry_run(state, device, capability):
+    dry_run = _latest_stored_dry_run(state, device, capability)
+    if not dry_run:
         raise SystemExit("A stored dry-run for this device and capability is required before certification")
+    if not _has_pre_certification_evaluation(state, device, capability, dry_run, credential_ref, decision):
+        raise SystemExit("Run evaluate-apply with the stored dry-run simulation hash before certifying this capability")
 
 
 def _has_stored_dry_run(state: FileLabState, device: ExcelInventoryDevice, capability: VendorOperation) -> bool:
+    return _latest_stored_dry_run(state, device, capability) is not None
+
+
+def _latest_stored_dry_run(state: FileLabState, device: ExcelInventoryDevice, capability: VendorOperation) -> dict[str, Any] | None:
+    matches: list[dict[str, Any]] = []
     for item in state.read_dry_runs():
         if item.get("device_id") != device.id or item.get("operation") != capability.value:
             continue
         if capability == VendorOperation.password_change and not item.get("private_command_hash"):
             continue
+        matches.append(item)
+    return sorted(matches, key=lambda item: item.get("created_at", ""), reverse=True)[0] if matches else None
+
+
+def _has_pre_certification_evaluation(
+    state: FileLabState,
+    device: ExcelInventoryDevice,
+    capability: VendorOperation,
+    dry_run: dict[str, Any],
+    credential_ref: str,
+    decision: Any,
+) -> bool:
+    command_hash = str(dry_run.get("command_hash") or "")
+    if not command_hash:
+        return False
+    evaluation = state.latest_evaluation_for(device.id, capability.value, command_hash)
+    if not evaluation:
+        return False
+    if evaluation.get("credential_ref") != credential_ref:
+        return False
+    if evaluation.get("vendor") != device.vendor:
+        return False
+    if evaluation.get("model") != device.model:
+        return False
+    if evaluation.get("driver_name") != device.driver_name:
+        return False
+    if evaluation.get("platform") != device.platform:
+        return False
+    if evaluation.get("driver_family") != decision.family.value:
+        return False
+    if evaluation.get("selected_transport") != decision.selected_transport.value:
+        return False
+    if evaluation.get("real_apply_requested") is True:
+        return False
+    private_hash = dry_run.get("private_command_hash")
+    if private_hash and evaluation.get("private_command_hash") != private_hash:
+        return False
+    denied = set(evaluation.get("denied_gates") or [])
+    if evaluation.get("allowed") is True and not denied:
         return True
-    return False
+    return denied == {"lab_validation"}
 
 
 def _vault(state: FileLabState) -> FileCredentialVault:
