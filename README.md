@@ -1,8 +1,8 @@
-# SwitchFleet
+# SwitchFleet Local
 
-Enterprise platform for safe multi-vendor switch management.
+SwitchFleet Local v0.3.0 is an Excel-first MVP for controlled multi-vendor switch administration in lab environments.
 
-SwitchFleet is built for controlled operations across mixed network estates: dry-run first, approval required, encrypted credentials, backup before change, verification before save, per-device locks, audit logs, and vendor-specific drivers behind a vendor-neutral intent API.
+The primary workflow runs locally from an Excel inventory without PostgreSQL, Alembic, FastAPI, Docker, or Redis. The FastAPI/PostgreSQL backend remains available as an optional enterprise mode. Both modes retain dry-run-first operations, encrypted credentials, backup-before-change gates, per-device locks, audit records, and vendor-aware safety decisions.
 
 ## What It Manages
 
