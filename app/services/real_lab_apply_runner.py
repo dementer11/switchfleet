@@ -423,7 +423,12 @@ class RealLabApplyRunner:
         host = str(evaluation.device.management_ip or evaluation.device.ip_address)
         transport = self._create_transport(evaluation.transport_decision, credentials, host, port, timeout)
         contract = get_vendor_driver_contract(evaluation.transport_decision.family)
-        explicit_secrets = [credentials.password or "", credentials.enable_password or ""]
+        explicit_secrets = [
+            credentials.password or "",
+            credentials.enable_password or "",
+            *_explicit_command_secrets(evaluation.internal_commands),
+        ]
+        explicit_secrets = [secret for secret in dict.fromkeys(explicit_secrets) if secret]
         executed: list[LabApplyCommand] = []
         outputs: list[LabCommandResult] = []
         failed = False
@@ -432,9 +437,11 @@ class RealLabApplyRunner:
             transport.open()
             for rendered in evaluation.internal_commands:
                 result = transport.run_command(rendered.command, timeout_seconds=timeout)
-                output = mask_secrets(result.output, explicit_secrets=[secret for secret in explicit_secrets if secret])
+                output = mask_secrets(result.output, explicit_secrets=explicit_secrets)
                 command_failed = (not result.success) or _matches_any(contract.error_patterns, result.output)
                 command_error = result.error or ("Vendor error pattern detected" if command_failed and result.success else None)
+                if command_error:
+                    command_error = mask_secrets(command_error, explicit_secrets=explicit_secrets)
                 outputs.append(
                     LabCommandResult(
                         command=_safe_command(rendered),
@@ -476,6 +483,19 @@ class RealLabApplyRunner:
 
 def _safe_command(command: RenderedCommand) -> str:
     return command.redacted() if command.secret else mask_secrets(command.command)
+
+
+def _explicit_command_secrets(commands: list[RenderedCommand]) -> list[str]:
+    secrets: list[str] = []
+    for command in commands:
+        if not command.secret:
+            continue
+        original_parts = command.command.split()
+        redacted_parts = command.redacted().split()
+        for original, redacted in zip(original_parts, redacted_parts, strict=False):
+            if redacted == "<redacted>" and original != redacted:
+                secrets.append(original)
+    return secrets
 
 
 def _matches_any(patterns: tuple[str, ...], output: str) -> bool:

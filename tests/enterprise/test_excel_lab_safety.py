@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.core.config import Settings, get_settings
 from app.core.vendor_driver_contracts import VendorOperation
+from app.services.driver_capability_matrix import DriverCapabilityMatrix
 from app.services.excel_inventory import load_excel_inventory
 from app.services.excel_lab_safety import ExcelLabSafetyRequest, ExcelLabSafetyService
 from app.services.file_credential_vault import FileCredentialVault
@@ -21,6 +22,34 @@ def _state_with_secret(tmp_path: Path, monkeypatch):
     vault = FileCredentialVault(state)
     vault.create_or_update(name="lab-admin", username="admin", secret="VaultSecret")
     return state, vault
+
+
+def _save_matching_validation(
+    state: FileLabState,
+    device,
+    capability: str,
+    **overrides,
+):
+    decision = DriverCapabilityMatrix().decide(
+        vendor=device.vendor,
+        model=device.model,
+        platform=device.platform,
+        driver_name=device.driver_name,
+        device_id=device.id,
+        hostname=device.hostname,
+    )
+    record = {
+        "device_id": device.id,
+        "capability": capability,
+        "vendor": device.vendor,
+        "model": device.model,
+        "driver_name": device.driver_name,
+        "platform": device.platform,
+        "family": decision.family.value,
+        "selected_transport": decision.selected_transport.value,
+    }
+    record.update(overrides)
+    return state.save_lab_validation(record)
 
 
 def test_excel_lab_safety_denies_missing_backup_allowlist_and_hash(tmp_path: Path, monkeypatch) -> None:
@@ -49,7 +78,7 @@ def test_excel_lab_safety_allows_file_mode_after_required_records(tmp_path: Path
     hash_value = command_hash(commands)
     state.save_dry_run({"device_id": device.id, "operation": "vlan_create", "command_hash": hash_value})
     state.save_backup(device.id, "hostname sw1\nusername admin secret <redacted>", {"config_hash": "safe"})
-    state.save_lab_validation({"device_id": device.id, "capability": "vlan_create"})
+    _save_matching_validation(state, device, "vlan_create")
 
     service = ExcelLabSafetyService(
         state,
@@ -113,6 +142,44 @@ def test_excel_lab_safety_requires_exact_lab_validation_capability(tmp_path: Pat
     assert state.latest_validation_for(device.id, "vlan_create") is None
 
 
+def test_excel_lab_safety_requires_runtime_matching_lab_validation(tmp_path: Path, monkeypatch) -> None:
+    device = load_excel_inventory(write_inventory(tmp_path / "inventory.xlsx"))[0]
+    state, vault = _state_with_secret(tmp_path, monkeypatch)
+    commands = VendorCommandTemplateService().render(
+        __import__("app.core.transport_strategy", fromlist=["DeviceFamily"]).DeviceFamily.cisco_ios,
+        VendorOperation.vlan_create,
+        {"vlan_id": 123, "name": "TEST"},
+    )
+    hash_value = command_hash(commands)
+    state.save_dry_run({"device_id": device.id, "operation": "vlan_create", "command_hash": hash_value})
+    state.save_backup(device.id, "hostname sw1\nusername admin secret <redacted>", {"config_hash": "safe"})
+    _save_matching_validation(state, device, "vlan_create", family="huawei_vrp", selected_transport="paramiko")
+
+    service = ExcelLabSafetyService(
+        state,
+        vault,
+        settings=Settings(
+            environment="test",
+            secret_key="excel-lab-secret-key",
+            lab_device_allowlist=device.ip_address,
+        ),
+    )
+    decision, runtime = service.evaluate(
+        ExcelLabSafetyRequest(
+            device=device,
+            operation=VendorOperation.vlan_create,
+            credential_ref="lab-admin",
+            command_parameters={"vlan_id": 123, "name": "TEST"},
+            simulation_hash=hash_value,
+        )
+    )
+
+    assert runtime.family.value == "cisco_ios"
+    assert decision.allowed is False
+    assert "lab_validation" in decision.denied_gates
+    assert any("runtime-matching lab certification" in reason for reason in decision.reasons)
+
+
 def test_excel_lab_real_apply_evaluation_does_not_decrypt_credentials(tmp_path: Path, monkeypatch) -> None:
     device = load_excel_inventory(write_inventory(tmp_path / "inventory.xlsx"))[0]
     state, vault = _state_with_secret(tmp_path, monkeypatch)
@@ -124,7 +191,7 @@ def test_excel_lab_real_apply_evaluation_does_not_decrypt_credentials(tmp_path: 
     hash_value = command_hash(commands)
     state.save_dry_run({"device_id": device.id, "operation": "vlan_create", "command_hash": hash_value})
     state.save_backup(device.id, "hostname sw1\nusername admin secret <redacted>", {"config_hash": "safe"})
-    state.save_lab_validation({"device_id": device.id, "capability": "vlan_create"})
+    _save_matching_validation(state, device, "vlan_create")
 
     def fail_decrypt(_ref: str) -> str:
         raise AssertionError("evaluate-apply must not decrypt credentials")
@@ -171,7 +238,7 @@ def test_excel_lab_evaluate_apply_does_not_require_secret_key_for_metadata_only_
     hash_value = command_hash(commands)
     state.save_dry_run({"device_id": device.id, "operation": "vlan_create", "command_hash": hash_value})
     state.save_backup(device.id, "hostname sw1\nusername admin secret <redacted>", {"config_hash": "safe"})
-    state.save_lab_validation({"device_id": device.id, "capability": "vlan_create"})
+    _save_matching_validation(state, device, "vlan_create")
     monkeypatch.delenv("NCP_SECRET_KEY", raising=False)
     get_settings.cache_clear()
     vault = FileCredentialVault(state)
@@ -210,7 +277,7 @@ def test_excel_lab_real_apply_evaluation_requires_secret_key_before_decrypt_tran
     hash_value = command_hash(commands)
     state.save_dry_run({"device_id": device.id, "operation": "vlan_create", "command_hash": hash_value})
     state.save_backup(device.id, "hostname sw1\nusername admin secret <redacted>", {"config_hash": "safe"})
-    state.save_lab_validation({"device_id": device.id, "capability": "vlan_create"})
+    _save_matching_validation(state, device, "vlan_create")
     monkeypatch.delenv("NCP_SECRET_KEY", raising=False)
     get_settings.cache_clear()
     vault = FileCredentialVault(state)
@@ -259,7 +326,7 @@ def test_excel_lab_safety_denies_stale_backup(tmp_path: Path, monkeypatch) -> No
     hash_value = command_hash(commands)
     state.save_dry_run({"device_id": device.id, "operation": "vlan_create", "command_hash": hash_value})
     state.save_backup(device.id, "hostname sw1\nusername admin secret <redacted>", {"config_hash": "safe"})
-    state.save_lab_validation({"device_id": device.id, "capability": "vlan_create"})
+    _save_matching_validation(state, device, "vlan_create")
     index_path = state.paths.backups / "index.json"
     index = json.loads(index_path.read_text(encoding="utf-8"))
     index["backups"][0]["created_at"] = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
@@ -309,7 +376,7 @@ def test_excel_lab_safety_requires_dry_run_for_same_device_and_operation(tmp_pat
     hash_value = command_hash(commands)
     state.save_dry_run({"device_id": other.id, "operation": "vlan_create", "command_hash": hash_value})
     state.save_backup(target.id, "hostname sw1\nusername admin secret <redacted>", {"config_hash": "safe"})
-    state.save_lab_validation({"device_id": target.id, "capability": "vlan_create"})
+    _save_matching_validation(state, target, "vlan_create")
     service = ExcelLabSafetyService(
         state,
         vault,
@@ -346,7 +413,7 @@ def test_excel_lab_safety_denies_active_lock(tmp_path: Path, monkeypatch) -> Non
     hash_value = command_hash(commands)
     state.save_dry_run({"device_id": device.id, "operation": "vlan_create", "command_hash": hash_value})
     state.save_backup(device.id, "hostname sw1\nusername admin secret <redacted>", {"config_hash": "safe"})
-    state.save_lab_validation({"device_id": device.id, "capability": "vlan_create"})
+    _save_matching_validation(state, device, "vlan_create")
     state.reserve_lock(device.id, "already running")
     service = ExcelLabSafetyService(
         state,
@@ -384,7 +451,7 @@ def test_excel_lab_safety_ignores_non_approved_validation_records(tmp_path: Path
     hash_value = command_hash(commands)
     state.save_dry_run({"device_id": device.id, "operation": "vlan_create", "command_hash": hash_value})
     state.save_backup(device.id, "hostname sw1\nusername admin secret <redacted>", {"config_hash": "safe"})
-    validation = state.save_lab_validation({"device_id": device.id, "capability": "vlan_create"})
+    validation = _save_matching_validation(state, device, "vlan_create")
     validation["status"] = "rejected"
     state.paths.lab_validations.write_text(json.dumps({"lab_validations": [validation]}), encoding="utf-8")
     service = ExcelLabSafetyService(
@@ -429,7 +496,7 @@ def test_excel_lab_safety_binds_secret_operations_to_private_dry_run_hash(tmp_pa
         }
     )
     state.save_backup(device.id, "hostname sw1\nusername admin secret <redacted>", {"config_hash": "safe"})
-    state.save_lab_validation({"device_id": device.id, "capability": "password_change"})
+    _save_matching_validation(state, device, "password_change")
     service = ExcelLabSafetyService(
         state,
         vault,

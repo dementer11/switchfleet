@@ -10,6 +10,40 @@ permissions:
   contents: read
 
 jobs:
+  local-cli:
+    name: Local CLI smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install local CLI dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Smoke test Excel-first local CLI
+        run: |
+          switchfleet --help
+          python scripts/excel_lab.py --help
+          switchfleet examples/lab/inventory.example.xlsx doctor
+          switchfleet examples/lab/inventory.example.xlsx summary
+          python -m pip check
+
   test:
     name: Python 3.12 checks
     runs-on: ubuntu-latest

@@ -33,7 +33,7 @@ def test_driver_runtime_decision_summary_and_safety_endpoints() -> None:
 
     cisco = client.get("/api/v1/driver-runtime/decision?vendor=Cisco&model=Catalyst%202960", headers=HEADERS)
     bulat = client.get("/api/v1/driver-runtime/decision?vendor=Bulat&model=BS2500", headers=HEADERS)
-    generic = client.get("/api/v1/driver-runtime/decision?vendor=Unknown&model=Unknown&driver_name=GenericSSHDriver", headers=HEADERS)
+    generic = client.get("/api/v1/driver-runtime/decision?vendor=GenericSSH&model=Manual%20profile&driver_name=GenericSSHDriver", headers=HEADERS)
     summary = client.get("/api/v1/driver-runtime/summary", headers=HEADERS)
     safety = client.get("/api/v1/driver-runtime/safety", headers=HEADERS)
 

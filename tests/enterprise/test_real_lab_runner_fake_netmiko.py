@@ -65,3 +65,35 @@ def test_runner_stops_on_vendor_error_pattern() -> None:
     assert result.executed is False
     assert result.failed is True
     assert result.error == "Vendor error pattern detected"
+
+
+def test_runner_redacts_command_and_credential_secrets_from_transport_errors() -> None:
+    session = SessionLocal()
+    device = create_lab_device(session)
+    payload = allowed_lab_payload(session, device)
+    evaluation = ApplySafetyKernel(session, settings=lab_settings(device)).evaluate(payload, actor_permissions=execute_permissions())
+
+    class SecretEchoErrorTransport(FakeCommandTransport):
+        def run_command(self, command: str, timeout_seconds: int = 60) -> CommandExecutionResult:
+            self.commands.append(command)
+            return CommandExecutionResult(
+                command=command,
+                output=f"{command}\nlogin password VaultSecret\nstandalone VerySecret\n#",
+                success=False,
+                error=f"transport failed with VaultSecret and VerySecret while running {command}",
+            )
+
+    def factory(*_args: object, **_kwargs: object) -> LabCommandTransport:
+        return SecretEchoErrorTransport()
+
+    result = RealLabApplyRunner(transport_factory=factory).execute(
+        evaluation,
+        RuntimeCredentials(username="admin", password="VaultSecret"),
+    )
+    rendered = str(result)
+
+    assert result.executed is False
+    assert result.failed is True
+    assert "VaultSecret" not in rendered
+    assert "VerySecret" not in rendered
+    assert "<redacted>" in rendered

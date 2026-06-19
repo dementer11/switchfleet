@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.core.config import Settings, get_settings
 from app.core.exceptions import SafetyError
 from app.core.transport_strategy import DeviceFamily, TransportDecision, TransportKind
-from app.core.vendor_driver_contracts import get_vendor_driver_contract
+from app.core.vendor_driver_contracts import ApplySupportLevel, VendorOperation, get_vendor_driver_contract
 from app.schemas.lab_apply import LabApplyCommand
 from app.services.driver_capability_matrix import DriverCapabilityMatrix
 from app.services.excel_inventory import ExcelInventoryDevice
@@ -25,7 +26,7 @@ from app.services.real_lab_apply_runner import (
     run_read_only_backup_command,
 )
 from app.services.transport_runtime import RuntimeCredentials
-from app.services.vendor_command_templates import RenderedCommand
+from app.services.vendor_command_templates import RenderedCommand, command_hash, private_command_hash
 from app.transports.base import CommandExecutionResult
 from app.utils.config_sanitizer import sanitize_config
 from app.utils.masking import mask_secrets
@@ -243,6 +244,36 @@ class ExcelLabApplyExecutor:
                 executed_commands=[],
                 error="Real lab execution requires a safety evaluation with real apply gates enabled",
             )
+        boundary_error = self._decision_boundary_error(device, safety_decision, transport_decision, credential_ref)
+        if boundary_error:
+            return ExcelApplyResult(
+                executed=False,
+                fake_transport=not real_lab,
+                transport_kind=safety_decision.selected_transport,
+                command_count=0,
+                executed_commands=[],
+                error=boundary_error,
+            )
+        state_error = self._current_state_gate_error(device, safety_decision, transport_decision, real_lab)
+        if state_error:
+            return ExcelApplyResult(
+                executed=False,
+                fake_transport=not real_lab,
+                transport_kind=safety_decision.selected_transport,
+                command_count=0,
+                executed_commands=[],
+                error=state_error,
+            )
+        usable, credential_reasons = self.vault.check_usable(credential_ref)
+        if not usable:
+            return ExcelApplyResult(
+                executed=False,
+                fake_transport=not real_lab,
+                transport_kind=safety_decision.selected_transport,
+                command_count=0,
+                executed_commands=[],
+                error="; ".join(credential_reasons),
+            )
         try:
             self.state.reserve_lock(device.id, "excel lab apply")
         except SafetyError as exc:
@@ -297,6 +328,134 @@ class ExcelLabApplyExecutor:
             return result
         finally:
             self.state.release_locks(device.id)
+
+    def _decision_boundary_error(
+        self,
+        device: ExcelInventoryDevice,
+        safety_decision: ExcelLabSafetyDecision,
+        transport_decision: TransportDecision,
+        credential_ref: str,
+    ) -> str | None:
+        if safety_decision.device_id != device.id:
+            return "Safety decision device does not match execution device"
+        if safety_decision.credential_ref != credential_ref:
+            return "Safety decision credential does not match execution credential"
+        if safety_decision.driver_family != transport_decision.family.value:
+            return "Safety decision family does not match runtime decision"
+        if safety_decision.selected_transport != transport_decision.selected_transport.value:
+            return "Safety decision transport does not match runtime decision"
+        return None
+
+    def _current_state_gate_error(
+        self,
+        device: ExcelInventoryDevice,
+        safety_decision: ExcelLabSafetyDecision,
+        transport_decision: TransportDecision,
+        real_lab: bool,
+    ) -> str | None:
+        try:
+            operation = VendorOperation(str(safety_decision.operation or ""))
+        except ValueError:
+            return "Safety decision operation is missing or invalid"
+        if not safety_decision.command_hash or safety_decision.simulation_hash != safety_decision.command_hash:
+            return "Safety decision simulation hash does not match its command hash"
+        if command_hash(safety_decision.internal_commands) != safety_decision.command_hash:
+            return "Safety decision command plan no longer matches its command hash"
+
+        settings = get_settings()
+        allowlist = {item.strip() for item in settings.lab_device_allowlist.split(",") if item.strip()}
+        if not allowlist.intersection({device.id, device.label, device.hostname, device.ip_address}):
+            return "Device is not in NCP_LAB_DEVICE_ALLOWLIST"
+        if real_lab and (
+            not settings.allow_real_device_apply
+            or not settings.lab_real_apply_enabled
+            or settings.production_real_apply_enabled
+            or not settings.secret_key
+        ):
+            return "Real lab environment gates are no longer satisfied"
+
+        current = DriverCapabilityMatrix().decide(
+            vendor=device.vendor,
+            model=device.model,
+            platform=device.platform,
+            driver_name=device.driver_name,
+            device_id=device.id,
+            hostname=device.hostname,
+        )
+        if (
+            current.family != transport_decision.family
+            or current.selected_transport != transport_decision.selected_transport
+        ):
+            return "Current device runtime decision no longer matches execution transport"
+        contract = get_vendor_driver_contract(current.family)
+        if operation != VendorOperation.read_backup and (
+            current.family
+            in {
+                DeviceFamily.unknown,
+                DeviceFamily.icmp,
+                DeviceFamily.generic_ssh,
+                DeviceFamily.limited_web,
+                DeviceFamily.non_switch,
+                DeviceFamily.eltex,
+                DeviceFamily.bulat,
+                DeviceFamily.qtech,
+            }
+            or not contract.supports_operation(operation)
+            or contract.apply_support_level
+            not in {ApplySupportLevel.lab_apply_candidate, ApplySupportLevel.lab_apply_certified}
+        ):
+            return f"{current.family.value} is not eligible for Excel lab config apply"
+        if any(contract.blocks_command(command.command) for command in safety_decision.internal_commands):
+            return "Safety decision contains a forbidden vendor command"
+
+        dry_run = self.state.get_dry_run(
+            safety_decision.simulation_hash,
+            device_id=device.id,
+            operation=operation.value,
+        )
+        if dry_run is None:
+            return "Stored dry-run command plan is no longer available"
+        stored_private_hash = dry_run.get("private_command_hash")
+        if stored_private_hash:
+            try:
+                current_private_hash = private_command_hash(
+                    safety_decision.internal_commands,
+                    secret_key=settings.secret_key,
+                )
+            except SafetyError:
+                return "Secret-bearing dry-run cannot be verified without NCP_SECRET_KEY"
+            if current_private_hash != stored_private_hash:
+                return "Stored dry-run private command hash no longer matches execution plan"
+        elif any(command.secret for command in safety_decision.internal_commands):
+            return "Stored dry-run lacks the private command hash required for secret-bearing execution"
+
+        if operation == VendorOperation.read_backup:
+            return None
+        backup = self.state.latest_backup_for(device.id)
+        if backup is None or not self._backup_is_fresh(backup, settings.lab_backup_max_age_hours):
+            return "A fresh sanitized backup is required before execution"
+        validation = self.state.latest_validation_for_runtime(
+            device.id,
+            operation.value,
+            vendor=device.vendor,
+            model=device.model,
+            driver_name=device.driver_name,
+            platform=device.platform,
+            family=current.family.value,
+            selected_transport=current.selected_transport.value,
+        )
+        if validation is None:
+            return "A runtime-matching lab certification record is required before execution"
+        return None
+
+    def _backup_is_fresh(self, backup: dict[str, Any], max_age_hours: int) -> bool:
+        try:
+            created_at = datetime.fromisoformat(str(backup.get("created_at") or ""))
+        except ValueError:
+            return False
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - created_at <= timedelta(hours=max(1, int(max_age_hours)))
 
     def _execute_real(self, evaluation: FileRuntimeEvaluation, username: str, secret: str) -> ExcelApplyResult:
         try:

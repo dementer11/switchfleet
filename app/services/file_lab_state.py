@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import uuid
@@ -25,7 +26,9 @@ class FileLabStatePaths:
     backups: Path
     audit: Path
     locks: Path
+    lockfiles: Path
     dry_runs: Path
+    evaluations: Path
     lab_validations: Path
     executions: Path
 
@@ -39,7 +42,9 @@ class FileLabState:
             backups=root / "backups",
             audit=root / "audit.jsonl",
             locks=root / "locks.json",
+            lockfiles=root / "lockfiles",
             dry_runs=root / "dry_runs.json",
+            evaluations=root / "evaluations.json",
             lab_validations=root / "lab_validations.json",
             executions=root / "executions",
         )
@@ -49,10 +54,12 @@ class FileLabState:
         self.paths.root.mkdir(parents=True, exist_ok=True)
         self.paths.backups.mkdir(parents=True, exist_ok=True)
         self.paths.executions.mkdir(parents=True, exist_ok=True)
+        self.paths.lockfiles.mkdir(parents=True, exist_ok=True)
         defaults: tuple[tuple[Path, dict[str, Any]], ...] = (
             (self.paths.credentials, {"credentials": []}),
             (self.paths.locks, {"locks": []}),
             (self.paths.dry_runs, {"dry_runs": []}),
+            (self.paths.evaluations, {"evaluations": []}),
             (self.paths.lab_validations, {"lab_validations": []}),
         )
         for path, default in defaults:
@@ -80,7 +87,7 @@ class FileLabState:
                 and item.get("operation") == record.get("operation")
             )
         ]
-        stored = {"id": record.get("id") or _new_id("dry-run"), "created_at": _now(), **record}
+        stored = {"id": record.get("id") or _new_id("dry-run"), "created_at": _now(), **_sanitize(record)}
         dry_runs.append(stored)
         self._write_json(self.paths.dry_runs, {"dry_runs": sorted(dry_runs, key=lambda item: item.get("created_at", ""))})
         return stored
@@ -96,13 +103,42 @@ class FileLabState:
             return item
         return None
 
+    def read_evaluations(self) -> list[dict[str, Any]]:
+        return list(self._read_json(self.paths.evaluations, {"evaluations": []}).get("evaluations", []))
+
+    def save_evaluation(self, record: dict[str, Any]) -> dict[str, Any]:
+        evaluations = [
+            item
+            for item in self.read_evaluations()
+            if not (
+                item.get("command_hash") == record.get("command_hash")
+                and item.get("device_id") == record.get("device_id")
+                and item.get("operation") == record.get("operation")
+                and item.get("simulation_hash") == record.get("simulation_hash")
+            )
+        ]
+        stored = {"id": record.get("id") or _new_id("evaluation"), "created_at": _now(), **_sanitize(record)}
+        evaluations.append(stored)
+        self._write_json(self.paths.evaluations, {"evaluations": sorted(evaluations, key=lambda item: item.get("created_at", ""))})
+        return stored
+
+    def latest_evaluation_for(self, device_id: str, operation: str, command_hash: str) -> dict[str, Any] | None:
+        matches = [
+            item
+            for item in self.read_evaluations()
+            if item.get("device_id") == device_id
+            and item.get("operation") == operation
+            and item.get("command_hash") == command_hash
+        ]
+        return sorted(matches, key=lambda item: item.get("created_at", ""), reverse=True)[0] if matches else None
+
     def read_lab_validations(self) -> list[dict[str, Any]]:
         return list(self._read_json(self.paths.lab_validations, {"lab_validations": []}).get("lab_validations", []))
 
     def save_lab_validation(self, record: dict[str, Any]) -> dict[str, Any]:
         validations = self.read_lab_validations()
         stored = {
-            **record,
+            **_sanitize(record),
             "id": record.get("id") or _new_id("validation"),
             "created_at": _now(),
             "status": "approved",
@@ -122,6 +158,44 @@ class FileLabState:
         ]
         return sorted(matches, key=lambda item: item.get("created_at", ""), reverse=True)[0] if matches else None
 
+    def latest_validation_for_runtime(
+        self,
+        device_id: str,
+        capability: str,
+        *,
+        vendor: str | None,
+        model: str | None,
+        driver_name: str | None,
+        platform: str | None,
+        family: str,
+        selected_transport: str,
+    ) -> dict[str, Any] | None:
+        criteria = {
+            "vendor": vendor,
+            "model": model,
+            "driver_name": driver_name,
+            "platform": platform,
+            "family": family,
+            "selected_transport": selected_transport,
+        }
+        matches = [
+            item
+            for item in self.read_lab_validations()
+            if item.get("device_id") == device_id
+            and item.get("capability") == capability
+            and item.get("status") == "approved"
+            and self._validation_matches_runtime(item, criteria)
+        ]
+        return sorted(matches, key=lambda item: item.get("created_at", ""), reverse=True)[0] if matches else None
+
+    def _validation_matches_runtime(self, validation: dict[str, Any], criteria: dict[str, str | None]) -> bool:
+        for key, expected in criteria.items():
+            if expected is None:
+                continue
+            if str(validation.get(key) or "") != str(expected):
+                return False
+        return True
+
     def read_locks(self) -> list[dict[str, Any]]:
         return list(self._read_json(self.paths.locks, {"locks": []}).get("locks", []))
 
@@ -129,13 +203,24 @@ class FileLabState:
         return any(item.get("device_id") == device_id and item.get("status") == "reserved" for item in self.read_locks())
 
     def reserve_lock(self, device_id: str, reason: str) -> dict[str, Any]:
-        if self.has_active_lock(device_id):
-            raise SafetyError(f"Device {device_id} already has an active lab lock")
-        locks = self.read_locks()
-        lock = {"id": _new_id("lock"), "device_id": device_id, "status": "reserved", "reason": reason, "created_at": _now()}
-        locks.append(lock)
-        self._write_json(self.paths.locks, {"locks": locks})
-        return lock
+        guard = self._lockfile_for(device_id)
+        try:
+            descriptor = os.open(guard, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError as exc:
+            raise SafetyError(f"Device {device_id} already has an active lab lock") from exc
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8"):
+                pass
+            if self.has_active_lock(device_id):
+                raise SafetyError(f"Device {device_id} already has an active lab lock")
+            locks = self.read_locks()
+            lock = {"id": _new_id("lock"), "device_id": device_id, "status": "reserved", "reason": reason, "created_at": _now()}
+            locks.append(lock)
+            self._write_json(self.paths.locks, {"locks": locks})
+            return lock
+        except Exception:
+            guard.unlink(missing_ok=True)
+            raise
 
     def release_locks(self, device_id: str) -> None:
         locks = self.read_locks()
@@ -144,6 +229,7 @@ class FileLabState:
                 lock["status"] = "released"
                 lock["released_at"] = _now()
         self._write_json(self.paths.locks, {"locks": locks})
+        self._lockfile_for(device_id).unlink(missing_ok=True)
 
     def save_backup(self, device_id: str, config_text: str, metadata: dict[str, Any]) -> dict[str, Any]:
         backup_id = _new_id("backup")
@@ -152,7 +238,7 @@ class FileLabState:
         config_path = device_dir / f"{backup_id}.txt"
         sanitized = sanitize_config(config_text)
         config_path.write_text(sanitized.text, encoding="utf-8")
-        safe_metadata = dict(metadata)
+        safe_metadata = _sanitize(metadata)
         safe_metadata.setdefault("config_hash", sanitized.config_hash)
         safe_metadata.setdefault("redaction_types", sanitized.redaction_types)
         record = {
@@ -177,11 +263,15 @@ class FileLabState:
         return list(self._read_json(index_path, {"backups": []}).get("backups", []))
 
     def latest_backup_for(self, device_id: str) -> dict[str, Any] | None:
-        matches = [item for item in self.list_backups() if item.get("device_id") == device_id and item.get("sanitized") is True]
+        matches = [
+            item
+            for item in self.list_backups()
+            if item.get("device_id") == device_id and item.get("sanitized") is True and self._backup_file_is_usable(item)
+        ]
         return sorted(matches, key=lambda item: item.get("created_at", ""), reverse=True)[0] if matches else None
 
     def save_execution(self, record: dict[str, Any]) -> dict[str, Any]:
-        execution = {"id": record.get("id") or _new_id("exec"), "created_at": _now(), **record}
+        execution = {"id": record.get("id") or _new_id("exec"), "created_at": _now(), **_sanitize(record)}
         path = self.paths.executions / f"{execution['id']}.json"
         self._write_json(path, execution)
         return execution
@@ -226,9 +316,31 @@ class FileLabState:
 
     def _write_json(self, path: Path, payload: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(path.suffix + ".tmp")
-        temp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
-        os.replace(temp, path)
+        temp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            temp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+            os.replace(temp, path)
+        finally:
+            temp.unlink(missing_ok=True)
+
+    def _lockfile_for(self, device_id: str) -> Path:
+        digest = hashlib.sha256(device_id.encode("utf-8")).hexdigest()
+        return self.paths.lockfiles / f"{digest}.lock"
+
+    def _backup_file_is_usable(self, record: dict[str, Any]) -> bool:
+        relative_path = record.get("config_path")
+        if not isinstance(relative_path, str) or not relative_path:
+            return False
+        root = self.paths.root.resolve()
+        path = (root / relative_path).resolve()
+        try:
+            path.relative_to(root)
+        except ValueError:
+            return False
+        try:
+            return path.is_file() and path.stat().st_size > 0
+        except OSError:
+            return False
 
 
 def _new_id(prefix: str) -> str:

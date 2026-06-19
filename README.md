@@ -73,7 +73,7 @@ switchfleet inventory.xlsx list
 switchfleet inventory.xlsx check-runtime --device 192.0.2.67
 ```
 
-For a checkout smoke test, use the included private-address lab sample:
+For a checkout smoke test, use the included documentation-address lab sample:
 
 ```powershell
 switchfleet examples/lab/inventory.example.xlsx doctor
@@ -99,7 +99,7 @@ switchfleet inventory.xlsx evaluate-apply --device 192.0.2.67 --credential lab-a
 switchfleet inventory.xlsx certify --device 192.0.2.67 --capability vlan_create --credential lab-admin
 ```
 
-Certification is lab-only and scoped: config capabilities can be certified only for allowlisted devices with a usable credential reference, fresh sanitized backup, stored dry-run for that device/capability, and a supported vendor template. Unsupported, ICMP, non-switch, QTECH, Eltex, and Bulat config apply remain blocked until explicit certified templates/policy exist.
+Certification is lab-only and scoped: config capabilities can be certified only for allowlisted devices with a usable credential reference, fresh sanitized backup, stored dry-run, and a matching recorded `evaluate-apply` result for the same device, credential, runtime profile, and command hash. The pre-certification evaluation may be blocked only by the missing lab-validation gate. Unsupported, ICMP, non-switch, QTECH, Eltex, and Bulat config apply remain blocked until explicit certified templates/policy exist.
 
 Real lab execution remains explicit and lab-only:
 
@@ -110,7 +110,7 @@ $env:NCP_PRODUCTION_REAL_APPLY_ENABLED = "false"
 switchfleet inventory.xlsx execute-apply --device 192.0.2.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run> --real-lab
 ```
 
-Excel lab state is stored under `.switchfleet_lab/` by default. Credential payloads are encrypted, backups are sanitized, audit events are JSONL, and production apply remains disabled. The DB-backed FastAPI platform is still available as enterprise mode below.
+Excel lab state is stored under `.switchfleet_lab/` by default. Credential payloads are encrypted, backups are sanitized, audit events are JSONL, and dry-run/evaluation/execution records are sanitized before persistence. Production apply remains disabled. The DB-backed FastAPI platform is still available as enterprise mode below.
 
 ## Inventory Onboarding
 
