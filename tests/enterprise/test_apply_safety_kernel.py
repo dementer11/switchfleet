@@ -1,6 +1,11 @@
+import uuid
+from datetime import datetime, timedelta, timezone
+
 from app.core.config import Settings
 from app.core.rbac import Permission
 from app.core.vendor_driver_contracts import ExecutionMode, VendorOperation
+from app.db.models.change_execution import ChangeExecutionLock, ChangeExecutionStep
+from app.db.models.config_backup import ConfigSnapshot
 from app.db.session import SessionLocal
 from app.schemas.lab_apply import LabApplyEvaluateRequest
 from app.services.apply_safety_kernel import ApplySafetyKernel
@@ -89,3 +94,88 @@ def test_apply_safety_kernel_denies_unknown_generic_and_icmp() -> None:
         ).decision
         assert decision.allowed is False
         assert "runtime_decision" in decision.denied_gates or "vendor_contract" in decision.denied_gates
+
+
+def test_apply_safety_kernel_denies_forged_approval_payload() -> None:
+    session = SessionLocal()
+    device = create_lab_device(session)
+    payload = allowed_lab_payload(session, device)
+    payload.approval_id = str(uuid.uuid4())
+    payload.approval_status = "approved"
+
+    decision = ApplySafetyKernel(session, settings=lab_settings(device)).evaluate(
+        payload,
+        actor_permissions=execute_permissions(),
+    ).decision
+
+    assert decision.allowed is False
+    assert "approval" in decision.denied_gates
+
+
+def test_apply_safety_kernel_denies_stale_or_unsafe_db_backup() -> None:
+    session = SessionLocal()
+    device = create_lab_device(session)
+    payload = allowed_lab_payload(session, device)
+    snapshot = session.get(ConfigSnapshot, uuid.UUID(payload.backup_snapshot_id or ""))
+    assert snapshot is not None
+    snapshot.collected_at = datetime.now(timezone.utc) - timedelta(hours=48)
+    session.flush()
+
+    stale = ApplySafetyKernel(session, settings=lab_settings(device)).evaluate(
+        payload,
+        actor_permissions=execute_permissions(),
+    ).decision
+    assert stale.allowed is False
+    assert "fresh_backup" in stale.denied_gates
+
+    snapshot.collected_at = datetime.now(timezone.utc)
+    snapshot.metadata_ = {"config_path": "../outside.txt"}
+    session.flush()
+
+    unsafe_path = ApplySafetyKernel(session, settings=lab_settings(device)).evaluate(
+        payload,
+        actor_permissions=execute_permissions(),
+    ).decision
+    assert unsafe_path.allowed is False
+    assert "fresh_backup" in unsafe_path.denied_gates
+
+
+def test_apply_safety_kernel_denies_unrelated_lock() -> None:
+    session = SessionLocal()
+    device = create_lab_device(session)
+    other_device = create_lab_device(session, vendor="Cisco", model="Catalyst 2960", driver_name="CiscoIOSDriver")
+    payload = allowed_lab_payload(session, device)
+    other_payload = allowed_lab_payload(session, other_device)
+    payload.lock_id = other_payload.lock_id
+    payload.approval_id = other_payload.approval_id
+
+    decision = ApplySafetyKernel(session, settings=lab_settings(device)).evaluate(
+        payload,
+        actor_permissions=execute_permissions(),
+    ).decision
+
+    assert decision.allowed is False
+    assert "device_lock" in decision.denied_gates
+    assert "approval" in decision.denied_gates
+
+
+def test_apply_safety_kernel_denies_rollback_not_bound_to_command_hash() -> None:
+    session = SessionLocal()
+    device = create_lab_device(session)
+    payload = allowed_lab_payload(session, device)
+    step = session.query(ChangeExecutionStep).join(ChangeExecutionLock, ChangeExecutionStep.execution_id == ChangeExecutionLock.execution_id).filter(
+        ChangeExecutionLock.id == uuid.UUID(payload.lock_id or "")
+    ).one()
+    assert isinstance(step.planned_action, dict)
+    assert isinstance(step.dry_run_output, dict)
+    step.planned_action["command_hash"] = "different-hash"
+    step.planned_action["simulation_hash"] = "different-hash"
+    session.flush()
+
+    decision = ApplySafetyKernel(session, settings=lab_settings(device)).evaluate(
+        payload,
+        actor_permissions=execute_permissions(),
+    ).decision
+
+    assert decision.allowed is False
+    assert "rollback_plan" in decision.denied_gates

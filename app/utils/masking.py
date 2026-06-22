@@ -9,6 +9,10 @@ SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?P<prefix>\bsecret\s+)(?P<secret>\S+)", re.I),
     re.compile(r"(?P<prefix>\benable\s+secret\s+)(?P<secret>\S+)", re.I),
     re.compile(r"(?P<prefix>\bcommunity\s+)(?P<secret>\S+)", re.I),
+    re.compile(r"(?P<prefix>\btoken\s+)(?P<secret>\S+)", re.I),
+    re.compile(r"(?P<prefix>\bapi[_-]?key\s+)(?P<secret>\S+)", re.I),
+    re.compile(r"(?P<prefix>\bauthorization\s+(?:bearer\s+)?)(?P<secret>\S+)", re.I),
+    re.compile(r"(?P<prefix>\bprivate[_-]?key\s+)(?P<secret>\S+)", re.I),
 )
 
 
@@ -30,4 +34,3 @@ def mask_secrets(text: str, explicit_secrets: list[str] | tuple[str, ...] = ()) 
 
 def mask_command_list(commands: list[str], explicit_secrets: list[str] | tuple[str, ...] = ()) -> list[str]:
     return [mask_secrets(command, explicit_secrets=explicit_secrets) for command in commands]
-

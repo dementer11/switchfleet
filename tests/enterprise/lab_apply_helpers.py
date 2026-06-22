@@ -67,14 +67,49 @@ def create_lab_validation(session: Session, device: Device, capability: str = "p
     return validation
 
 
-def create_lock(session: Session, device: Device) -> str:
+def create_change_execution_gates(
+    session: Session,
+    device: Device,
+    *,
+    operation: str,
+    command_hash_value: str,
+    rollback_commands: list[str],
+) -> tuple[str, str]:
     repo = ChangeExecutionRepository(session)
     execution = repo.create_execution(
         title="Lab apply readiness",
-        change_type="password_change",
+        change_type=operation,
         source_type="manual",
         requested_by="netadmin",
     )
+    repo.create_steps(
+        execution.id,
+        [
+            {
+                "step_order": 1,
+                "name": "Bound lab apply dry-run",
+                "step_type": "dry_run",
+                "status": "simulated",
+                "target_type": "device",
+                "target_id": device.id,
+                "device_id": device.id,
+                "planned_action": {
+                    "operation": operation,
+                    "command_hash": command_hash_value,
+                    "simulation_hash": command_hash_value,
+                    "rollback_commands": rollback_commands,
+                },
+                "dry_run_output": {
+                    "operation": operation,
+                    "command_hash": command_hash_value,
+                    "simulation_hash": command_hash_value,
+                    "rollback_commands": rollback_commands,
+                },
+            }
+        ],
+    )
+    repo.create_approval(execution.id, requested_by="netadmin")
+    approval = repo.approve_execution(execution.id, actor="security-admin", comment="approved for lab apply")
     lock = repo.create_locks(
         execution.id,
         [
@@ -88,7 +123,18 @@ def create_lock(session: Session, device: Device) -> str:
             }
         ],
     )[0]
-    return str(lock.id)
+    return str(lock.id), str(approval.id)
+
+
+def create_lock(session: Session, device: Device) -> str:
+    lock_id, _approval_id = create_change_execution_gates(
+        session,
+        device,
+        operation="password_change",
+        command_hash_value="legacy-test-hash",
+        rollback_commands=["rollback preview: restore previous credential"],
+    )
+    return lock_id
 
 
 def create_secret(session: Session) -> str:
@@ -103,21 +149,28 @@ def create_secret(session: Session) -> str:
 def allowed_lab_payload(session: Session, device: Device) -> LabApplyEvaluateRequest:
     snapshot = create_snapshot(session, device)
     validation = create_lab_validation(session, device)
-    lock_id = create_lock(session, device)
     credential_ref = create_secret(session)
     params = {"username": "admin", "password": "VerySecret", "level": 15}
     commands = VendorCommandTemplateService().render(device_family(device), VendorOperation.password_change, params)
     safe_hash = command_hash(commands)
+    rollback_commands = ["rollback preview: restore previous credential"]
+    lock_id, approval_id = create_change_execution_gates(
+        session,
+        device,
+        operation=VendorOperation.password_change.value,
+        command_hash_value=safe_hash,
+        rollback_commands=rollback_commands,
+    )
     return LabApplyEvaluateRequest(
         device_id=str(device.id),
         operation=VendorOperation.password_change,
         credential_ref=credential_ref,
         command_parameters=params,
         command_plan=[LabApplyCommand(command=command.command, secret=command.secret) for command in commands],
-        rollback_plan=[LabApplyCommand(command="rollback preview: restore previous credential", secret=False)],
+        rollback_plan=[LabApplyCommand(command=command, secret=False) for command in rollback_commands],
         backup_snapshot_id=str(snapshot.id),
         lab_validation_id=str(validation.id),
-        approval_id="approval-1",
+        approval_id=approval_id,
         approval_status="approved",
         dry_run_hash=safe_hash,
         simulation_hash=safe_hash,

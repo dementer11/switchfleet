@@ -588,6 +588,7 @@ The optional enterprise API remains available from a source checkout or package 
 ## Documentation
 
 - [Enterprise platform architecture](docs/enterprise-platform.md)
+- [Vendor support matrix](docs/vendor-support-matrix.md)
 - [Inventory onboarding](docs/inventory-onboarding.md)
 - [Config backup scheduling](docs/config-backup-scheduling.md)
 - [VLAN workflow hardening](docs/vlan-workflow-hardening.md)
