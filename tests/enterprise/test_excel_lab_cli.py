@@ -429,6 +429,22 @@ def test_runnable_lab_docs_keep_required_workflow_order() -> None:
     assert docs.index("switchfleet inventory.xlsx certify") < docs.index("switchfleet inventory.xlsx execute-apply")
 
 
+def test_local_working_version_checklist_is_linked_and_keeps_workflow_order() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    readme = (repo_root / "README.md").read_text(encoding="utf-8")
+    checklist = (repo_root / "docs" / "local-working-version-checklist.md").read_text(encoding="utf-8")
+
+    assert "docs/local-working-version-checklist.md" in readme
+    assert "does not require PostgreSQL, Alembic, FastAPI startup, Redis, Docker, or database imports" in checklist
+    assert checklist.index("switchfleet inventory.xlsx doctor") < checklist.index("switchfleet inventory.xlsx summary")
+    assert checklist.index("switchfleet inventory.xlsx summary") < checklist.index("switchfleet inventory.xlsx list")
+    assert checklist.index("switchfleet inventory.xlsx add-credential") < checklist.index("switchfleet inventory.xlsx backup")
+    assert checklist.index("switchfleet inventory.xlsx backup") < checklist.index("switchfleet inventory.xlsx dry-run")
+    assert checklist.index("switchfleet inventory.xlsx dry-run") < checklist.index("switchfleet inventory.xlsx evaluate-apply")
+    assert checklist.index("switchfleet inventory.xlsx evaluate-apply") < checklist.index("switchfleet inventory.xlsx certify")
+    assert checklist.index("switchfleet inventory.xlsx certify") < checklist.index("switchfleet inventory.xlsx execute-apply")
+
+
 def test_lab_validation_docs_do_not_direct_users_to_legacy_real_apply() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     docs = (repo_root / "docs" / "lab-validation.md").read_text(encoding="utf-8")

@@ -1,7 +1,7 @@
 [project]
 name = "netops-orchestrator"
 version = "0.3.0"
-description = "Enterprise network equipment orchestration with first-party CLI drivers."
+description = "Excel-first local switch administration with optional enterprise orchestration APIs."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
