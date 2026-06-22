@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -148,3 +149,22 @@ def test_file_lab_state_reports_corrupt_json(tmp_path: Path) -> None:
         assert "corrupt json" in str(exc).casefold()
     else:
         raise AssertionError("Corrupt file state was not rejected")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX mode bits are not portable on this platform")
+def test_file_lab_state_applies_private_posix_permissions(tmp_path: Path) -> None:
+    state = FileLabState(tmp_path / ".switchfleet_lab")
+    backup = state.save_backup("dev1", "hostname sw1", {"source": "unit-test"})
+    lock = state.reserve_lock("dev1", "unit-test")
+
+    assert stat_mode(state.paths.root) == 0o700
+    assert stat_mode(state.paths.credentials) == 0o600
+    assert stat_mode(state.paths.audit) == 0o600
+    assert stat_mode(state.paths.locks) == 0o600
+    assert stat_mode(state.paths.root / backup["config_path"]) == 0o600
+    assert stat_mode(state._lockfile_for("dev1")) == 0o600
+    assert lock["status"] == "reserved"
+
+
+def stat_mode(path: Path) -> int:
+    return path.stat().st_mode & 0o777

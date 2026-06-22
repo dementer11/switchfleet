@@ -55,6 +55,8 @@ class FileLabState:
         self.paths.backups.mkdir(parents=True, exist_ok=True)
         self.paths.executions.mkdir(parents=True, exist_ok=True)
         self.paths.lockfiles.mkdir(parents=True, exist_ok=True)
+        for directory in (self.paths.root, self.paths.backups, self.paths.executions, self.paths.lockfiles):
+            _chmod_private(directory, directory=True)
         defaults: tuple[tuple[Path, dict[str, Any]], ...] = (
             (self.paths.credentials, {"credentials": []}),
             (self.paths.locks, {"locks": []}),
@@ -65,8 +67,11 @@ class FileLabState:
         for path, default in defaults:
             if not path.exists():
                 self._write_json(path, default)
+            else:
+                _chmod_private(path)
         if not self.paths.audit.exists():
             self.paths.audit.write_text("", encoding="utf-8")
+        _chmod_private(self.paths.audit)
 
     def read_credentials(self) -> list[dict[str, Any]]:
         return list(self._read_json(self.paths.credentials, {"credentials": []}).get("credentials", []))
@@ -205,12 +210,13 @@ class FileLabState:
     def reserve_lock(self, device_id: str, reason: str) -> dict[str, Any]:
         guard = self._lockfile_for(device_id)
         try:
-            descriptor = os.open(guard, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            descriptor = os.open(guard, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError as exc:
             raise SafetyError(f"Device {device_id} already has an active lab lock") from exc
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8"):
                 pass
+            _chmod_private(guard)
             if self.has_active_lock(device_id):
                 raise SafetyError(f"Device {device_id} already has an active lab lock")
             locks = self.read_locks()
@@ -235,9 +241,11 @@ class FileLabState:
         backup_id = _new_id("backup")
         device_dir = self.paths.backups / device_id
         device_dir.mkdir(parents=True, exist_ok=True)
+        _chmod_private(device_dir, directory=True)
         config_path = device_dir / f"{backup_id}.txt"
         sanitized = sanitize_config(config_text)
         config_path.write_text(sanitized.text, encoding="utf-8")
+        _chmod_private(config_path)
         safe_metadata = _sanitize(metadata)
         safe_metadata.setdefault("config_hash", sanitized.config_hash)
         safe_metadata.setdefault("redaction_types", sanitized.redaction_types)
@@ -288,6 +296,7 @@ class FileLabState:
         }
         with self.paths.audit.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+        _chmod_private(self.paths.audit)
         return event
 
     def audit_tail(self, limit: int = 20) -> list[dict[str, Any]]:
@@ -319,7 +328,9 @@ class FileLabState:
         temp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
         try:
             temp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+            _chmod_private(temp)
             os.replace(temp, path)
+            _chmod_private(path)
         finally:
             temp.unlink(missing_ok=True)
 
@@ -359,3 +370,12 @@ def _sanitize(value: Any) -> Any:
     if isinstance(value, str):
         return mask_secrets(value)
     return value
+
+
+def _chmod_private(path: Path, *, directory: bool = False) -> None:
+    if os.name != "posix":
+        return
+    try:
+        path.chmod(0o700 if directory else 0o600)
+    except OSError:
+        return

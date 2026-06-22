@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import PurePosixPath, PureWindowsPath
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,7 +13,7 @@ from app.core.config import Settings, get_settings
 from app.core.rbac import Permission
 from app.core.transport_strategy import DeviceFamily, TransportDecision, TransportKind
 from app.core.vendor_driver_contracts import ApplySupportLevel, ExecutionMode, VendorOperation, get_vendor_driver_contract
-from app.db.models.change_execution import ChangeExecutionLock
+from app.db.models.change_execution import ChangeExecutionApproval, ChangeExecutionLock, ChangeExecutionStep
 from app.db.models.config_backup import ConfigSnapshot
 from app.db.models.device import Device
 from app.db.models.lab_validation import LabDriverValidation
@@ -78,6 +80,7 @@ class ApplySafetyKernel:
         internal_commands: list[RenderedCommand] = []
         device = self._get_device(payload.device_id)
         decision: TransportDecision | None = None
+        bound_lock = self._bound_lock(payload, device)
         permission_values = {permission.value if isinstance(permission, Permission) else str(permission) for permission in actor_permissions}
         missing_permissions = [
             permission.value
@@ -172,11 +175,6 @@ class ApplySafetyKernel:
         else:
             self._deny("lab_validation", "An approved matching lab validation is required", reasons, denied)
 
-        if payload.approval_id and (payload.approval_status or "").casefold() == "approved":
-            satisfied.append("approval")
-        else:
-            self._deny("approval", "Approved change metadata is required", reasons, denied)
-
         command_errors: list[str] = []
         if decision is not None:
             internal_commands, command_errors = self._command_plan(payload, decision.family)
@@ -187,21 +185,26 @@ class ApplySafetyKernel:
             satisfied.append("command_safety")
         computed_command_hash = command_hash(internal_commands) if internal_commands else None
         if computed_command_hash and payload.simulation_hash == computed_command_hash and (
-            payload.dry_run_hash is None or payload.dry_run_hash == computed_command_hash
+                payload.dry_run_hash is None or payload.dry_run_hash == computed_command_hash
         ):
             satisfied.append("simulation_hash")
         else:
             self._deny("simulation_hash", "Simulation/dry-run hash must match the current sanitized command plan", reasons, denied)
 
-        if payload.operation == VendorOperation.read_backup or payload.rollback_plan:
+        if self._approval_satisfied(payload, device, bound_lock, computed_command_hash):
+            satisfied.append("approval")
+        else:
+            self._deny("approval", "Persisted approved change approval bound to this device, lock, and command plan is required", reasons, denied)
+
+        if self._rollback_satisfied(payload, device, bound_lock, computed_command_hash):
             satisfied.append("rollback_plan")
         else:
-            self._deny("rollback_plan", "Rollback plan preview is required for config operations", reasons, denied)
+            self._deny("rollback_plan", "Persisted rollback preview bound to this device and command hash is required", reasons, denied)
 
-        if self._lock_satisfied(payload, device):
+        if bound_lock is not None:
             satisfied.append("device_lock")
         else:
-            self._deny("device_lock", "A reserved per-device lock is required", reasons, denied)
+            self._deny("device_lock", "A reserved per-device lock bound to the current change execution is required", reasons, denied)
 
         if not missing_permissions:
             satisfied.append("actor_permission")
@@ -258,7 +261,24 @@ class ApplySafetyKernel:
             snapshot = self.session.get(ConfigSnapshot, uuid.UUID(str(payload.backup_snapshot_id)))
         except ValueError:
             return False
-        return bool(snapshot and snapshot.device_id == device.id and snapshot.sanitized)
+        if snapshot is None or snapshot.device_id != device.id:
+            return False
+        if not snapshot.sanitized:
+            return False
+        if not str(snapshot.config_text or "").strip():
+            return False
+        if not str(snapshot.config_hash or "").strip():
+            return False
+        collected_at = comparable_datetime(snapshot.collected_at)
+        max_age = timedelta(hours=max(0, int(self.settings.lab_backup_max_age_hours)))
+        if collected_at <= datetime.now(timezone.utc) - max_age:
+            return False
+        metadata = snapshot.metadata_ or {}
+        if self._backup_metadata_marks_incomplete(metadata):
+            return False
+        if self._metadata_has_unsafe_path(metadata):
+            return False
+        return True
 
     def _lab_validation_satisfied(
         self,
@@ -284,21 +304,6 @@ class ApplySafetyKernel:
             return False
         return validation.capability in {payload.operation.value, "lab_apply", "config_apply", "vlan_management", "password_change"}
 
-    def _lock_satisfied(self, payload: LabApplyEvaluateRequest, device: Device | None) -> bool:
-        if device is None:
-            return False
-        statement = select(ChangeExecutionLock).where(
-            ChangeExecutionLock.device_id == device.id,
-            ChangeExecutionLock.status == "reserved",
-            ChangeExecutionLock.lock_type == "device",
-        )
-        if payload.lock_id:
-            try:
-                statement = statement.where(ChangeExecutionLock.id == uuid.UUID(str(payload.lock_id)))
-            except ValueError:
-                return False
-        return self.session.scalar(statement.order_by(ChangeExecutionLock.created_at.desc())) is not None
-
     def _get_device(self, device_id: str) -> Device | None:
         try:
             return self.session.get(Device, uuid.UUID(str(device_id)))
@@ -323,3 +328,168 @@ class ApplySafetyKernel:
         if gate not in denied:
             denied.append(gate)
         reasons.append(reason)
+
+    def _bound_lock(self, payload: LabApplyEvaluateRequest, device: Device | None) -> ChangeExecutionLock | None:
+        if device is None or not payload.lock_id:
+            return None
+        try:
+            lock_id = uuid.UUID(str(payload.lock_id))
+        except ValueError:
+            return None
+        lock = self.session.get(ChangeExecutionLock, lock_id)
+        if lock is None:
+            return None
+        if lock.device_id != device.id:
+            return None
+        if lock.status != "reserved" or lock.lock_type != "device":
+            return None
+        if lock.target_type != "device":
+            return None
+        if lock.target_id is not None and lock.target_id != device.id:
+            return None
+        return lock
+
+    def _approval_satisfied(
+        self,
+        payload: LabApplyEvaluateRequest,
+        device: Device | None,
+        lock: ChangeExecutionLock | None,
+        computed_command_hash: str | None,
+    ) -> bool:
+        if device is None or lock is None or not payload.approval_id or not computed_command_hash:
+            return False
+        try:
+            approval_id = uuid.UUID(str(payload.approval_id))
+        except ValueError:
+            return False
+        approval = self.session.get(ChangeExecutionApproval, approval_id)
+        if approval is None:
+            return False
+        if approval.execution_id != lock.execution_id:
+            return False
+        if approval.status != "approved" or approval.decided_at is None or not approval.approved_by:
+            return False
+        max_age_hours = getattr(self.settings, "lab_approval_max_age_hours", self.settings.lab_backup_max_age_hours)
+        if comparable_datetime(approval.decided_at) <= datetime.now(timezone.utc) - timedelta(hours=max(0, int(max_age_hours))):
+            return False
+        return self._execution_has_bound_step(
+            lock.execution_id,
+            device.id,
+            operation=payload.operation.value,
+            command_hash=computed_command_hash,
+            require_rollback=False,
+            rollback_commands=None,
+        )
+
+    def _rollback_satisfied(
+        self,
+        payload: LabApplyEvaluateRequest,
+        device: Device | None,
+        lock: ChangeExecutionLock | None,
+        computed_command_hash: str | None,
+    ) -> bool:
+        if payload.operation == VendorOperation.read_backup:
+            return True
+        if device is None or lock is None or not computed_command_hash or not payload.rollback_plan:
+            return False
+        rollback_commands = [item.command for item in payload.rollback_plan]
+        return self._execution_has_bound_step(
+            lock.execution_id,
+            device.id,
+            operation=payload.operation.value,
+            command_hash=computed_command_hash,
+            require_rollback=True,
+            rollback_commands=rollback_commands,
+        )
+
+    def _execution_has_bound_step(
+        self,
+        execution_id: uuid.UUID,
+        device_id: uuid.UUID,
+        *,
+        operation: str,
+        command_hash: str,
+        require_rollback: bool,
+        rollback_commands: list[str] | None,
+    ) -> bool:
+        steps = self.session.scalars(
+            select(ChangeExecutionStep).where(
+                ChangeExecutionStep.execution_id == execution_id,
+                ChangeExecutionStep.device_id == device_id,
+            )
+        ).all()
+        for step in steps:
+            if not self._step_metadata_bound(
+                step,
+                operation=operation,
+                command_hash=command_hash,
+                require_rollback=require_rollback,
+                rollback_commands=rollback_commands,
+            ):
+                continue
+            return True
+        return False
+
+    def _step_metadata_bound(
+        self,
+        step: ChangeExecutionStep,
+        *,
+        operation: str,
+        command_hash: str,
+        require_rollback: bool,
+        rollback_commands: list[str] | None,
+    ) -> bool:
+        sources = [source for source in (step.planned_action, step.dry_run_output) if isinstance(source, dict)]
+        binding_sources = [
+            source
+            for source in sources
+            if any(key in source for key in ("operation", "command_hash", "simulation_hash", "dry_run_hash", "rollback_commands"))
+        ]
+        if not binding_sources:
+            return False
+        for metadata in binding_sources:
+            if not self._metadata_matches(metadata, "operation", operation):
+                return False
+            if not any(self._metadata_matches(metadata, key, command_hash) for key in ("command_hash", "simulation_hash", "dry_run_hash")):
+                return False
+            if require_rollback:
+                stored_rollback = self._metadata_list(metadata, "rollback_commands")
+                if not stored_rollback:
+                    return False
+                if rollback_commands is None or stored_rollback != rollback_commands:
+                    return False
+        return True
+
+    def _metadata_matches(self, metadata: dict[str, Any], key: str, expected: str) -> bool:
+        value = metadata.get(key)
+        if isinstance(value, list):
+            return expected in {str(item) for item in value}
+        return str(value or "") == expected
+
+    def _metadata_list(self, metadata: dict[str, Any], key: str) -> list[str]:
+        value = metadata.get(key)
+        if isinstance(value, list):
+            return [str(item) for item in value]
+        return []
+
+    def _backup_metadata_marks_incomplete(self, metadata: dict[str, Any]) -> bool:
+        for key in ("complete", "backup_complete"):
+            if key in metadata and metadata.get(key) is False:
+                return True
+        for key in ("incomplete", "backup_incomplete", "paging_incomplete", "paging_marker_detected"):
+            if metadata.get(key) is True:
+                return True
+        status = str(metadata.get("status") or metadata.get("result") or "").casefold()
+        return status in {"failed", "incomplete", "partial", "paged"}
+
+    def _metadata_has_unsafe_path(self, metadata: dict[str, Any]) -> bool:
+        for key in ("config_path", "path", "file_path", "backup_path"):
+            value = metadata.get(key)
+            if not isinstance(value, str) or not value:
+                continue
+            if PurePosixPath(value).is_absolute() or PureWindowsPath(value).is_absolute():
+                return True
+            parts = set(PurePosixPath(value).parts) | set(PureWindowsPath(value).parts)
+            if ".." in parts:
+                return True
+        return False

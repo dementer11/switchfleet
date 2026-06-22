@@ -675,7 +675,7 @@ Driver mapping:
 - Bulat BS2500/BS6300: `BulatBSDriver`, dry-run only until lab confirmation
 - Cisco Catalyst/Cat2960: `CiscoIOSDriver`
 - Dell PowerConnect: `DellPowerConnectDriver`
-- Unknown SNMP/Huawei Unknown: `GenericSSHDriver`
+- Unknown SNMP/Huawei Unknown: inventory-only/readiness classification; config apply fails closed unless a specific vendor profile is certified.
 - ICMP-only: `ReadOnlyICMPDriver`
 
 ## Rollout Strategy
