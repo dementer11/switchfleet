@@ -13,7 +13,7 @@ switchfleet examples/lab/inventory.example.xlsx list
 switchfleet examples/lab/inventory.example.xlsx check-runtime --device huawei-s5735
 ```
 
-The Excel example uses only private lab IP addresses and includes supported, candidate, and blocked classifications:
+The Excel example uses only documentation-range lab IP addresses and includes supported, candidate, and blocked classifications:
 
 - Huawei VRP
 - HPE Comware
