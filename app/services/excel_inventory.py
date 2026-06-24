@@ -45,6 +45,13 @@ class ExcelInventoryDevice:
     normalized_model: str | None = None
 
 
+@dataclass(frozen=True)
+class ExcelDeviceResolution:
+    device: ExcelInventoryDevice
+    selector_used: str
+    warning: str | None = None
+
+
 def load_excel_inventory(path: str | Path) -> list[ExcelInventoryDevice]:
     inventory_path = Path(path)
     if not inventory_path.exists():
@@ -75,24 +82,48 @@ def load_excel_inventory(path: str | Path) -> list[ExcelInventoryDevice]:
 
 
 def resolve_excel_device(devices: list[ExcelInventoryDevice], value: str) -> ExcelInventoryDevice:
-    needle = _normalize_match(value)
-    matches = [
+    return resolve_excel_device_selector(devices, value).device
+
+
+def resolve_excel_device_selector(devices: list[ExcelInventoryDevice], value: str) -> ExcelDeviceResolution:
+    selector = value.strip()
+    if not selector:
+        raise ExcelInventoryError("Device IP address is required")
+
+    ip_matches = [device for device in devices if device.ip_address.strip() == selector]
+    if len(ip_matches) > 1:
+        raise ExcelInventoryError(
+            f"Duplicate IP address {selector!r} matched multiple Excel rows: {_format_selector_matches(ip_matches)}"
+        )
+    if len(ip_matches) == 1:
+        return ExcelDeviceResolution(device=ip_matches[0], selector_used=selector)
+
+    internal_matches = [device for device in devices if _normalize_match(device.id) == _normalize_match(selector)]
+    if len(internal_matches) == 1:
+        return ExcelDeviceResolution(
+            device=internal_matches[0],
+            selector_used=selector,
+            warning="Internal device IDs are deprecated for CLI use; use IP address instead.",
+        )
+
+    named_matches = [
         device
         for device in devices
-        if needle
-        in {
-            _normalize_match(device.id),
-            _normalize_match(device.label),
-            _normalize_match(device.hostname),
-            _normalize_match(device.ip_address),
-        }
+        if _normalize_match(selector) in {_normalize_match(device.label), _normalize_match(device.hostname)}
     ]
-    if not matches:
-        raise ExcelInventoryError(f"Device {value!r} was not found in Excel inventory")
-    if len(matches) > 1:
-        labels = ", ".join(f"{device.label} ({device.ip_address})" for device in matches)
-        raise ExcelInventoryError(f"Device selector {value!r} matched multiple rows: {labels}")
-    return matches[0]
+    if named_matches:
+        raise ExcelInventoryError(
+            f"Device IP {selector!r} was not found. The selector matches non-IP row(s): "
+            f"{_format_selector_matches(named_matches)}. Use the device IP address with --device or --ip."
+        )
+    raise ExcelInventoryError(f"Device IP {selector!r} was not found in Excel inventory")
+
+
+def _format_selector_matches(devices: list[ExcelInventoryDevice]) -> str:
+    return "; ".join(
+        f"ip={device.ip_address}, label={device.label}, vendor={device.vendor}, model={device.model}"
+        for device in devices
+    )
 
 
 def infer_runtime_hints(vendor: str, model: str, category: str | None = None) -> tuple[str | None, str | None]:

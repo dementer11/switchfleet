@@ -71,6 +71,30 @@ def test_excel_lab_safety_denies_missing_backup_allowlist_and_hash(tmp_path: Pat
     assert {"device_allowlist", "fresh_backup", "lab_validation", "simulation_hash"} <= set(decision.denied_gates)
 
 
+def test_excel_lab_safety_does_not_allowlist_internal_generated_id(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("NCP_SECRET_KEY", "excel-lab-secret-key")
+    get_settings.cache_clear()
+    device = load_excel_inventory(write_inventory(tmp_path / "inventory.xlsx"))[0]
+    state, vault = _state_with_secret(tmp_path, monkeypatch)
+
+    decision, _runtime = ExcelLabSafetyService(
+        state,
+        vault,
+        settings=Settings(environment="test", secret_key="excel-lab-secret-key", lab_device_allowlist=device.id),
+    ).evaluate(
+        ExcelLabSafetyRequest(
+            device=device,
+            operation=VendorOperation.vlan_create,
+            credential_ref="lab-admin",
+            command_parameters={"vlan_id": 123, "name": "TEST"},
+            simulation_hash="missing",
+        )
+    )
+
+    assert "device_allowlist" in decision.denied_gates
+    assert any(device.ip_address in reason for reason in decision.reasons)
+
+
 def test_excel_lab_safety_allows_file_mode_after_required_records(tmp_path: Path, monkeypatch) -> None:
     device = load_excel_inventory(write_inventory(tmp_path / "inventory.xlsx"))[0]
     state, vault = _state_with_secret(tmp_path, monkeypatch)

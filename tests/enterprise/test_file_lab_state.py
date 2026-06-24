@@ -81,6 +81,17 @@ def test_file_lab_state_keeps_same_hash_for_different_devices(tmp_path: Path) ->
     }
 
 
+def test_file_lab_state_uses_device_ip_for_new_backup_storage_names(tmp_path: Path) -> None:
+    state = FileLabState(tmp_path / ".switchfleet_lab")
+
+    ip_backup = state.save_backup("excel-internal-id", "hostname sw1", {"device_ip": "192.0.2.67"})
+    legacy_backup = state.save_backup("excel-internal-id", "hostname sw1", {"source": "legacy"})
+
+    assert Path(ip_backup["config_path"]).parts[:2] == ("backups", "192.0.2.67")
+    assert Path(legacy_backup["config_path"]).parts[:2] == ("backups", "excel-internal-id")
+    assert state.latest_backup_for("excel-internal-id") is not None
+
+
 def test_file_lab_state_does_not_treat_missing_or_empty_backup_files_as_usable(tmp_path: Path) -> None:
     state = FileLabState(tmp_path / ".switchfleet_lab")
     backup = state.save_backup("dev1", "hostname sw1", {"source": "unit-test"})

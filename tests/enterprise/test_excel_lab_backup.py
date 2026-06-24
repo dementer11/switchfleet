@@ -38,10 +38,18 @@ def test_excel_lab_backup_uses_fake_transport_and_saves_sanitized_file(tmp_path:
         transport_factory=FakeFactory(fake),
     ).backup_device(device, credential_ref="lab-admin")
 
+    assert result.device_ip == device.ip_address
+    assert result.hostname == device.hostname
+    assert result.label == device.label
+    assert result.vendor == device.vendor
+    assert result.model == device.model
     assert result.command_count == 1
     assert fake.commands == ["show running-config"]
     backup = state.latest_backup_for(device.id)
     assert backup is not None
+    assert backup["device_ip"] == device.ip_address
+    assert backup["internal_device_id"] == device.id
+    assert Path(backup["config_path"]).parts[:2] == ("backups", device.ip_address)
     config_text = (state.paths.root / backup["config_path"]).read_text(encoding="utf-8")
     assert "SHOULD_NOT_LEAK" not in config_text
 

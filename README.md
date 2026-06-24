@@ -73,6 +73,8 @@ switchfleet inventory.xlsx list
 switchfleet inventory.xlsx check-runtime --device 192.0.2.67
 ```
 
+Use IP address as the operator-facing device selector. Internal generated IDs are implementation details and should not be used in normal CLI workflows.
+
 For a checkout smoke test, use the included documentation-address lab sample:
 
 ```powershell
@@ -317,11 +319,11 @@ The older `scripts/lab_prototype.py` helper is DB-backed enterprise prototype mo
 python scripts/lab_prototype.py bootstrap-admin
 python scripts/lab_prototype.py import-devices examples/lab/devices.example.yaml
 python scripts/lab_prototype.py add-credential --name lab-admin --username admin --password-prompt
-python scripts/lab_prototype.py check-runtime --device sw1-lab
-python scripts/lab_prototype.py backup --device sw1-lab --credential lab-admin
-python scripts/lab_prototype.py dry-run --device sw1-lab --operation vlan_create --vlan-id 123 --name TEST_VLAN
-python scripts/lab_prototype.py evaluate-apply --device sw1-lab --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --prototype-auto-gates
-python scripts/lab_prototype.py execute-apply --device sw1-lab --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --prototype-auto-gates --simulation-hash <hash-from-dry-run> --real-lab
+python scripts/lab_prototype.py check-runtime --device 198.51.100.11
+python scripts/lab_prototype.py backup --device 198.51.100.11 --credential lab-admin
+python scripts/lab_prototype.py dry-run --device 198.51.100.11 --operation vlan_create --vlan-id 123 --name TEST_VLAN
+python scripts/lab_prototype.py evaluate-apply --device 198.51.100.11 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --prototype-auto-gates
+python scripts/lab_prototype.py execute-apply --device 198.51.100.11 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --prototype-auto-gates --simulation-hash <hash-from-dry-run> --real-lab
 ```
 
 Real lab execution remains behind lab safety gates and requires lab env flags, allowlist, credential ref, fresh backup, lab certification metadata, matching command hash, and explicit `--real-lab`. See [Runnable Lab Prototype](docs/runnable-lab-prototype.md).
