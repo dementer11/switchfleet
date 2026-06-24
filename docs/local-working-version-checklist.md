@@ -24,7 +24,7 @@ Use the bundled documentation-range inventory for a safe smoke test:
 switchfleet examples/lab/inventory.example.xlsx doctor
 switchfleet examples/lab/inventory.example.xlsx summary
 switchfleet examples/lab/inventory.example.xlsx list
-switchfleet examples/lab/inventory.example.xlsx check-runtime --device qtech-4610
+switchfleet examples/lab/inventory.example.xlsx check-runtime --device 192.0.2.30
 ```
 
 Expected properties:
@@ -49,6 +49,8 @@ The Excel inventory must contain these columns:
 - `Contact`
 
 Rows that are empty or clearly not device rows should be ignored. Unknown, ambiguous, ICMP-only, and non-switch rows must fail closed for config apply.
+
+Use IP address as the operator-facing device selector. Internal generated IDs are implementation details and should not be used in normal CLI workflows.
 
 ## Primary Command Order
 

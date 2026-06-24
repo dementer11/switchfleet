@@ -72,6 +72,8 @@ class ExcelLabSafetyDecision:
             "satisfied_gates": self.satisfied_gates,
             "denied_gates": self.denied_gates,
             "safe_command_plan": [command.model_dump() for command in self.safe_command_plan],
+            "operation": self.operation,
+            "simulation_hash": self.simulation_hash,
             "command_hash": self.command_hash,
             "selected_transport": self.selected_transport,
             "driver_family": self.driver_family,
@@ -152,7 +154,12 @@ class ExcelLabSafetyService:
         if self._allowlisted(request.device):
             satisfied.add("device_allowlist")
         else:
-            self._deny("device_allowlist", f"Device {request.device.label} / {request.device.ip_address} is not in NCP_LAB_DEVICE_ALLOWLIST", reasons, denied)
+            self._deny(
+                "device_allowlist",
+                f"Device {request.device.ip_address} ({request.device.label}) is not in NCP_LAB_DEVICE_ALLOWLIST",
+                reasons,
+                denied,
+            )
 
         contract = get_vendor_driver_contract(decision.family)
         if decision.selected_transport in {TransportKind.unsupported, TransportKind.icmp_only}:
@@ -286,8 +293,7 @@ class ExcelLabSafetyService:
 
     def _allowlisted(self, device: ExcelInventoryDevice) -> bool:
         allowlist = {item.strip() for item in self.settings.lab_device_allowlist.split(",") if item.strip()}
-        identifiers = {device.id, device.label, device.hostname, device.ip_address}
-        return bool(allowlist & identifiers)
+        return device.ip_address in allowlist
 
     def _backup_is_fresh(self, backup: dict[str, Any]) -> bool:
         try:

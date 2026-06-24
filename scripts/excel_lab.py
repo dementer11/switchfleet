@@ -25,7 +25,7 @@ if str(REPO_ROOT) not in sys.path:
 from app.core.config import get_settings
 from app.core.vendor_driver_contracts import VendorOperation, get_vendor_driver_contract
 from app.services.driver_capability_matrix import DriverCapabilityMatrix
-from app.services.excel_inventory import ExcelInventoryDevice, load_excel_inventory, resolve_excel_device
+from app.services.excel_inventory import ExcelDeviceResolution, ExcelInventoryDevice, load_excel_inventory, resolve_excel_device_selector
 from app.services.excel_lab_runtime import ExcelLabApplyExecutor, ExcelLabBackupRunner
 from app.services.excel_lab_safety import ExcelLabSafetyRequest, ExcelLabSafetyService
 from app.services.file_credential_vault import FileCredentialVault
@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> None:
     list_parser.add_argument("--limit", type=int)
 
     device_parser = sub.add_parser("check-runtime", help="Show runtime decision for one Excel device")
-    device_parser.add_argument("--device", required=True)
+    _device_selector_arg(device_parser)
 
     add_credential = sub.add_parser("add-credential", help="Create encrypted file credential ref")
     add_credential.add_argument("--name", required=True)
@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> None:
     add_credential.add_argument("--purpose", default="lab_apply")
 
     backup = sub.add_parser("backup", help="Run read-only lab backup for an allowlisted Excel device")
-    backup.add_argument("--device", required=True)
+    _device_selector_arg(backup)
     backup.add_argument("--credential", required=True)
 
     dry_run = sub.add_parser("dry-run", help="Render redacted command plan and store dry-run hash")
@@ -71,7 +71,7 @@ def main(argv: list[str] | None = None) -> None:
     _apply_args(evaluate)
 
     certify = sub.add_parser("certify", help="Record lab-only capability certification evidence")
-    certify.add_argument("--device", required=True)
+    _device_selector_arg(certify)
     certify.add_argument("--capability", required=True)
     certify.add_argument("--credential", required=True)
 
@@ -107,19 +107,21 @@ def _dispatch(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "list":
         return {"devices": _list_devices(devices, args)}
     if args.command == "check-runtime":
-        device = resolve_excel_device(devices, args.device)
-        return _check_runtime(state, device)
+        resolution = _resolve_device(devices, args)
+        return _with_selector_warning(_check_runtime(state, resolution.device, args, resolution), resolution)
     if args.command == "add-credential":
         vault = _vault(state)
         secret = _read_secret(args)
         metadata = vault.create_or_update(name=args.name, username=args.username, secret=secret, purpose=args.purpose)
         return {"credential": metadata.to_safe_dict()}
     if args.command == "backup":
-        device = resolve_excel_device(devices, args.device)
+        resolution = _resolve_device(devices, args)
+        device = resolution.device
         result = ExcelLabBackupRunner(state, _vault(state)).backup_device(device, credential_ref=args.credential)
-        return {"backup": result.to_dict()}
+        return _with_selector_warning({"backup": result.to_dict()}, resolution)
     if args.command == "dry-run":
-        device = resolve_excel_device(devices, args.device)
+        resolution = _resolve_device(devices, args)
+        device = resolution.device
         operation = VendorOperation(args.operation)
         parameters = _command_parameters(args)
         commands = _render(device, operation, parameters)
@@ -127,32 +129,48 @@ def _dispatch(args: argparse.Namespace) -> dict[str, Any]:
         state.save_dry_run(
             {
                 "device_id": device.id,
+                "internal_device_id": device.id,
+                "device_ip": device.ip_address,
                 "device_label": device.label,
+                "hostname": device.hostname,
+                "vendor": device.vendor,
+                "model": device.model,
                 "operation": operation.value,
                 "command_hash": hash_value,
                 "private_command_hash": _private_command_hash(commands),
                 "commands": [command.to_safe_dict() for command in commands],
             }
         )
-        return {
-            "device": _device_dict(device),
-            "operation": operation.value,
-            "commands": [command.to_safe_dict() for command in commands],
-            "command_hash": hash_value,
-        }
+        return _with_selector_warning(
+            {
+                "device_ip": device.ip_address,
+                "device": _device_dict(device, debug=args.debug),
+                "operation": operation.value,
+                "commands": [command.to_safe_dict() for command in commands],
+                "command_hash": hash_value,
+            },
+            resolution,
+        )
     if args.command == "evaluate-apply":
-        decision, _transport_decision = _evaluate(state, devices, args, require_real_apply=False, record_evaluation=True)
-        return decision.to_dict()
+        resolution = _resolve_device(devices, args)
+        decision, _transport_decision = _evaluate(state, resolution.device, args, require_real_apply=False, record_evaluation=True)
+        return _with_selector_warning(
+            _with_device_context(_public_safety_decision(decision.to_dict(), resolution.device, debug=args.debug), resolution.device, args),
+            resolution,
+        )
     if args.command == "certify":
-        device = resolve_excel_device(devices, args.device)
+        resolution = _resolve_device(devices, args)
+        device = resolution.device
         capability = _certification_capability(args.capability)
         _assert_certification_allowed(state, device, capability, args.credential)
         decision = _decision_for_device(device)
         record = state.save_lab_validation(
             {
                 "device_id": device.id,
+                "internal_device_id": device.id,
+                "device_ip": device.ip_address,
                 "device_label": device.label,
-                "ip_address": device.ip_address,
+                "hostname": device.hostname,
                 "vendor": device.vendor,
                 "model": device.model,
                 "driver_name": device.driver_name,
@@ -169,16 +187,20 @@ def _dispatch(args: argparse.Namespace) -> dict[str, Any]:
             actor="excel-lab",
             object_type="lab_validation",
             object_id=record["id"],
-            metadata={"device_id": device.id, "capability": capability.value},
+            metadata=_device_metadata(device) | {"capability": capability.value},
         )
-        return {"certification": record}
+        return _with_selector_warning(
+            _with_device_context({"certification": _public_state_record(record, devices, debug=args.debug)}, device, args),
+            resolution,
+        )
     if args.command == "certification-report":
-        return {"certifications": state.read_lab_validations()}
+        return {"certifications": [_public_state_record(record, devices, debug=args.debug) for record in state.read_lab_validations()]}
     if args.command == "execute-apply":
         if args.real_lab and not args.simulation_hash:
             raise SystemExit("Real lab execution requires --simulation-hash from a prior dry-run")
-        decision, transport_decision = _evaluate(state, devices, args, require_real_apply=args.real_lab)
-        device = resolve_excel_device(devices, args.device)
+        resolution = _resolve_device(devices, args)
+        device = resolution.device
+        decision, transport_decision = _evaluate(state, device, args, require_real_apply=args.real_lab)
         result = ExcelLabApplyExecutor(state, _vault(state)).execute(
             device=device,
             safety_decision=decision,
@@ -186,14 +208,21 @@ def _dispatch(args: argparse.Namespace) -> dict[str, Any]:
             credential_ref=args.credential,
             real_lab=args.real_lab,
         )
-        return {"decision": decision.to_dict(), "execution": result.to_dict()}
+        return _with_selector_warning(
+            _with_device_context(
+                {"decision": _public_safety_decision(decision.to_dict(), device, debug=args.debug), "execution": result.to_dict()},
+                device,
+                args,
+            ),
+            resolution,
+        )
     if args.command == "audit-tail":
-        return {"events": state.audit_tail(args.limit)}
+        return {"events": [_public_audit_event(event, devices, debug=args.debug) for event in state.audit_tail(args.limit)]}
     raise SystemExit(f"Unsupported command: {args.command}")
 
 
 def _operation_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--device", required=True)
+    _device_selector_arg(parser)
     parser.add_argument("--operation", choices=[item.value for item in VendorOperation], required=True)
     parser.add_argument("--vlan-id", type=int)
     parser.add_argument("--name")
@@ -208,6 +237,17 @@ def _apply_args(parser: argparse.ArgumentParser) -> None:
     _operation_args(parser)
     parser.add_argument("--credential", required=True)
     parser.add_argument("--simulation-hash")
+
+
+def _device_selector_arg(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "--device",
+        dest="device",
+        metavar="IP_ADDRESS",
+        help="device IP address; internal excel-* IDs are deprecated for CLI use",
+    )
+    group.add_argument("--ip", dest="device", metavar="IP_ADDRESS", help="device IP address")
 
 
 def _doctor(args: argparse.Namespace, state: FileLabState, devices: list[ExcelInventoryDevice]) -> dict[str, Any]:
@@ -280,19 +320,34 @@ def _list_devices(devices: list[ExcelInventoryDevice], args: argparse.Namespace)
             continue
         if args.allowlisted_only and not _is_allowlisted(device):
             continue
-        filtered.append({**_device_dict(device), "runtime": _runtime_decision(device), "lab_allowed": _is_allowlisted(device)})
+        report = _runtime_report(None, device, debug=args.debug)
+        filtered.append(
+            {
+                **_device_dict(device, debug=args.debug),
+                "family": report["family"],
+                "driver": report["driver"],
+                "selected_transport": report["transport"],
+                "backup_supported": report["backup_status"]["status"] != "unsupported",
+                "backup_status": report["backup_status"]["status"],
+                "apply_support_level": report["apply_status"]["apply_support_level"],
+                "apply_status": report["apply_status"]["status"],
+                "lab_allowed": _is_allowlisted(device),
+                "reasons": report["reasons"],
+                "warnings": report["warnings"],
+                **({"runtime_decision": report["decision"]} if args.debug else {}),
+            }
+        )
     return filtered[: args.limit] if args.limit else filtered
 
 
 def _evaluate(
     state: FileLabState,
-    devices: list[ExcelInventoryDevice],
+    device: ExcelInventoryDevice,
     args: argparse.Namespace,
     *,
     require_real_apply: bool,
     record_evaluation: bool = False,
 ):
-    device = resolve_excel_device(devices, args.device)
     operation = VendorOperation(args.operation)
     parameters = _command_parameters(args)
     service = ExcelLabSafetyService(state, _vault(state), settings=get_settings())
@@ -311,7 +366,10 @@ def _evaluate(
         state.save_evaluation(
             {
                 "device_id": device.id,
+                "internal_device_id": device.id,
+                "device_ip": device.ip_address,
                 "device_label": device.label,
+                "hostname": device.hostname,
                 "operation": operation.value,
                 "credential_ref": args.credential,
                 "simulation_hash": args.simulation_hash,
@@ -355,20 +413,29 @@ def _decision_for_device(device: ExcelInventoryDevice):
     return decision
 
 
-def _runtime_decision(device: ExcelInventoryDevice) -> dict[str, Any]:
-    return _runtime_report(None, device)["decision"]
-
-
-def _check_runtime(state: FileLabState, device: ExcelInventoryDevice) -> dict[str, Any]:
-    report = _runtime_report(state, device)
+def _check_runtime(
+    state: FileLabState,
+    device: ExcelInventoryDevice,
+    args: argparse.Namespace,
+    resolution: ExcelDeviceResolution,
+) -> dict[str, Any]:
+    report = _runtime_report(state, device, debug=args.debug)
     return {
-        "device": _device_dict(device),
+        "selector_used": resolution.selector_used,
+        "device_ip": device.ip_address,
+        "hostname": device.hostname,
+        "label": device.label,
+        "vendor": device.vendor,
+        "model": device.model,
+        "device": _device_dict(device, debug=args.debug),
         "original_vendor": device.original_vendor or device.vendor,
         "original_model": device.original_model or device.model,
         "normalized_vendor": device.normalized_vendor or device.vendor,
         "normalized_model": device.normalized_model or device.model,
         "family": report["family"],
         "driver": report["driver"],
+        "platform": device.platform,
+        "selected_transport": report["transport"],
         "transport": report["transport"],
         "backup_status": report["backup_status"],
         "apply_status": report["apply_status"],
@@ -378,10 +445,10 @@ def _check_runtime(state: FileLabState, device: ExcelInventoryDevice) -> dict[st
     }
 
 
-def _runtime_report(state: FileLabState | None, device: ExcelInventoryDevice) -> dict[str, Any]:
+def _runtime_report(state: FileLabState | None, device: ExcelInventoryDevice, *, debug: bool = False) -> dict[str, Any]:
     decision = _decision_for_device(device)
     contract = get_vendor_driver_contract(decision.family)
-    data = decision.to_safe_dict()
+    data = _public_runtime_decision(decision.to_safe_dict(), device, debug=debug)
     data["apply_support_level"] = contract.apply_support_level.value
     data["production_certified"] = contract.production_certified
     backup = _backup_status(state, device, decision, contract.read_only_commands)
@@ -577,6 +644,109 @@ def _has_pre_certification_evaluation(
     return denied == {"lab_validation"}
 
 
+def _resolve_device(devices: list[ExcelInventoryDevice], args: argparse.Namespace) -> ExcelDeviceResolution:
+    return resolve_excel_device_selector(devices, str(args.device))
+
+
+def _with_selector_warning(payload: dict[str, Any], resolution: ExcelDeviceResolution) -> dict[str, Any]:
+    if resolution.warning:
+        return {"selector_warning": resolution.warning, **payload}
+    return payload
+
+
+def _with_device_context(payload: dict[str, Any], device: ExcelInventoryDevice, args: argparse.Namespace) -> dict[str, Any]:
+    return {"device_ip": device.ip_address, "device": _device_dict(device, debug=args.debug), **payload}
+
+
+def _device_metadata(device: ExcelInventoryDevice) -> dict[str, Any]:
+    return {
+        "device_id": device.id,
+        "internal_device_id": device.id,
+        "device_ip": device.ip_address,
+        "device_label": device.label,
+        "hostname": device.hostname,
+        "vendor": device.vendor,
+        "model": device.model,
+    }
+
+
+def _public_runtime_decision(data: dict[str, Any], device: ExcelInventoryDevice, *, debug: bool) -> dict[str, Any]:
+    public = dict(data)
+    public.pop("device_id", None)
+    public["device_ip"] = device.ip_address
+    public["hostname"] = device.hostname
+    public["label"] = device.label
+    if debug:
+        public["internal_device_id"] = device.id
+    return public
+
+
+def _public_safety_decision(data: dict[str, Any], device: ExcelInventoryDevice, *, debug: bool) -> dict[str, Any]:
+    public = dict(data)
+    internal = public.pop("device_id", None)
+    public["device_ip"] = device.ip_address
+    public.setdefault("hostname", device.hostname)
+    public.setdefault("label", device.label)
+    public.setdefault("vendor", device.vendor)
+    public.setdefault("model", device.model)
+    if debug and internal:
+        public["internal_device_id"] = internal
+    return public
+
+
+def _public_state_record(record: dict[str, Any], devices: list[ExcelInventoryDevice], *, debug: bool) -> dict[str, Any]:
+    public = dict(record)
+    device = _device_for_state_record(devices, public)
+    if device is not None:
+        public.setdefault("device_ip", device.ip_address)
+        public.setdefault("hostname", device.hostname)
+        public.setdefault("device_label", device.label)
+        public.setdefault("vendor", device.vendor)
+        public.setdefault("model", device.model)
+    internal = public.pop("device_id", None)
+    public.pop("ip_address", None)
+    if debug and internal:
+        public["internal_device_id"] = public.get("internal_device_id") or internal
+    elif not debug:
+        public.pop("internal_device_id", None)
+    return public
+
+
+def _public_audit_event(event: dict[str, Any], devices: list[ExcelInventoryDevice], *, debug: bool) -> dict[str, Any]:
+    public = dict(event)
+    metadata = public.get("metadata")
+    if isinstance(metadata, dict):
+        public["metadata"] = _public_state_record(metadata, devices, debug=debug)
+    object_id = public.get("object_id")
+    if public.get("object_type") == "device" and isinstance(object_id, str):
+        device = _device_by_internal_id(devices, object_id)
+        if device is not None:
+            public["object_id"] = device.ip_address
+            public["device_ip"] = device.ip_address
+            if debug:
+                public["internal_device_id"] = object_id
+    return public
+
+
+def _device_for_state_record(devices: list[ExcelInventoryDevice], record: dict[str, Any]) -> ExcelInventoryDevice | None:
+    ip = record.get("device_ip") or record.get("ip_address")
+    if isinstance(ip, str):
+        for device in devices:
+            if device.ip_address == ip:
+                return device
+    internal = record.get("device_id") or record.get("internal_device_id")
+    if isinstance(internal, str):
+        return _device_by_internal_id(devices, internal)
+    return None
+
+
+def _device_by_internal_id(devices: list[ExcelInventoryDevice], internal_device_id: str) -> ExcelInventoryDevice | None:
+    for device in devices:
+        if device.id == internal_device_id:
+            return device
+    return None
+
+
 def _vault(state: FileLabState) -> FileCredentialVault:
     return FileCredentialVault(state)
 
@@ -605,21 +775,20 @@ def _read_new_password(args: argparse.Namespace) -> str:
 
 def _assert_allowlisted(device: ExcelInventoryDevice) -> None:
     if not _is_allowlisted(device):
-        raise SystemExit(f"Device {device.label} / {device.ip_address} is not in NCP_LAB_DEVICE_ALLOWLIST")
+        raise SystemExit(f"Device {device.ip_address} ({device.label}) is not in NCP_LAB_DEVICE_ALLOWLIST")
 
 
 def _is_allowlisted(device: ExcelInventoryDevice) -> bool:
     allowlist = {item.strip() for item in get_settings().lab_device_allowlist.split(",") if item.strip()}
-    identifiers = {device.id, device.label, device.hostname, device.ip_address}
-    return bool(allowlist & identifiers)
+    return device.ip_address in allowlist
 
 
-def _device_dict(device: ExcelInventoryDevice) -> dict[str, Any]:
-    return {
-        "id": device.id,
-        "label": device.label,
-        "hostname": device.hostname,
+def _device_dict(device: ExcelInventoryDevice, *, debug: bool = False) -> dict[str, Any]:
+    data = {
+        "device_ip": device.ip_address,
         "ip_address": device.ip_address,
+        "hostname": device.hostname,
+        "label": device.label,
         "vendor": device.vendor,
         "model": device.model,
         "original_vendor": device.original_vendor or device.vendor,
@@ -633,6 +802,9 @@ def _device_dict(device: ExcelInventoryDevice) -> dict[str, Any]:
         "driver_name": device.driver_name,
         "platform": device.platform,
     }
+    if debug:
+        data["internal_device_id"] = device.id
+    return data
 
 
 if __name__ == "__main__":

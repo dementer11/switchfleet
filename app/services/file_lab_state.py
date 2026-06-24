@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -207,20 +208,35 @@ class FileLabState:
     def has_active_lock(self, device_id: str) -> bool:
         return any(item.get("device_id") == device_id and item.get("status") == "reserved" for item in self.read_locks())
 
-    def reserve_lock(self, device_id: str, reason: str) -> dict[str, Any]:
+    def reserve_lock(
+        self,
+        device_id: str,
+        reason: str,
+        *,
+        display_name: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         guard = self._lockfile_for(device_id)
+        display = display_name or device_id
         try:
             descriptor = os.open(guard, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError as exc:
-            raise SafetyError(f"Device {device_id} already has an active lab lock") from exc
+            raise SafetyError(f"Device {display} already has an active lab lock") from exc
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8"):
                 pass
             _chmod_private(guard)
             if self.has_active_lock(device_id):
-                raise SafetyError(f"Device {device_id} already has an active lab lock")
+                raise SafetyError(f"Device {display} already has an active lab lock")
             locks = self.read_locks()
-            lock = {"id": _new_id("lock"), "device_id": device_id, "status": "reserved", "reason": reason, "created_at": _now()}
+            lock = {
+                "id": _new_id("lock"),
+                "device_id": device_id,
+                "status": "reserved",
+                "reason": reason,
+                "created_at": _now(),
+                **_sanitize(metadata or {}),
+            }
             locks.append(lock)
             self._write_json(self.paths.locks, {"locks": locks})
             return lock
@@ -239,14 +255,14 @@ class FileLabState:
 
     def save_backup(self, device_id: str, config_text: str, metadata: dict[str, Any]) -> dict[str, Any]:
         backup_id = _new_id("backup")
-        device_dir = self.paths.backups / device_id
+        safe_metadata = _sanitize(metadata)
+        device_dir = self.paths.backups / _backup_storage_name(device_id, safe_metadata)
         device_dir.mkdir(parents=True, exist_ok=True)
         _chmod_private(device_dir, directory=True)
         config_path = device_dir / f"{backup_id}.txt"
         sanitized = sanitize_config(config_text)
         config_path.write_text(sanitized.text, encoding="utf-8")
         _chmod_private(config_path)
-        safe_metadata = _sanitize(metadata)
         safe_metadata.setdefault("config_hash", sanitized.config_hash)
         safe_metadata.setdefault("redaction_types", sanitized.redaction_types)
         record = {
@@ -370,6 +386,17 @@ def _sanitize(value: Any) -> Any:
     if isinstance(value, str):
         return mask_secrets(value)
     return value
+
+
+def _backup_storage_name(device_id: str, metadata: dict[str, Any]) -> str:
+    device_ip = str(metadata.get("device_ip") or metadata.get("ip_address") or "").strip()
+    return _safe_path_component(device_ip or device_id)
+
+
+def _safe_path_component(value: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
+    safe = safe.strip("._-")
+    return safe or "device"
 
 
 def _chmod_private(path: Path, *, directory: bool = False) -> None:

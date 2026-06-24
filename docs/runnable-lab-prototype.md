@@ -23,6 +23,8 @@ Rows with empty device data or explicit service rows are ignored. Unknown or amb
 
 The repository includes `examples/lab/inventory.example.xlsx` for local smoke tests. It uses documentation IP addresses and covers the main runtime classifications, including candidate switch families, QTECH, unmanaged D-Link, non-switch SecurityCode Continent, Unknown SNMP inventory-only records, and ICMP health-only records.
 
+Use the device IP address as the operator-facing selector. Internal generated IDs are implementation details and should not be copied into normal CLI commands.
+
 ## State
 
 Excel lab mode stores local state under `.switchfleet_lab/` by default:

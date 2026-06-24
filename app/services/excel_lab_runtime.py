@@ -34,7 +34,11 @@ from app.utils.masking import mask_secrets
 
 @dataclass(frozen=True)
 class ExcelBackupResult:
-    device_id: str
+    device_ip: str
+    hostname: str
+    label: str
+    vendor: str
+    model: str
     backup_id: str
     command_count: int
     transport_kind: str
@@ -145,8 +149,12 @@ class ExcelLabBackupRunner:
             device.id,
             sanitized.text,
             {
+                "internal_device_id": device.id,
+                "device_ip": device.ip_address,
                 "device_label": device.label,
-                "ip_address": device.ip_address,
+                "hostname": device.hostname,
+                "vendor": device.vendor,
+                "model": device.model,
                 "transport_kind": decision.selected_transport.value,
                 "command_count": len(contract.read_only_commands),
                 "config_hash": sanitized.config_hash,
@@ -158,10 +166,24 @@ class ExcelLabBackupRunner:
             actor=actor,
             object_type="backup",
             object_id=record["id"],
-            metadata={"device_id": device.id, "command_count": len(contract.read_only_commands), "config_hash": sanitized.config_hash},
+            metadata={
+                "device_id": device.id,
+                "internal_device_id": device.id,
+                "device_ip": device.ip_address,
+                "device_label": device.label,
+                "hostname": device.hostname,
+                "vendor": device.vendor,
+                "model": device.model,
+                "command_count": len(contract.read_only_commands),
+                "config_hash": sanitized.config_hash,
+            },
         )
         return ExcelBackupResult(
-            device_id=device.id,
+            device_ip=device.ip_address,
+            hostname=device.hostname,
+            label=device.label,
+            vendor=device.vendor,
+            model=device.model,
             backup_id=record["id"],
             command_count=len(contract.read_only_commands),
             transport_kind=decision.selected_transport.value,
@@ -196,9 +218,8 @@ class ExcelLabBackupRunner:
 
     def _assert_read_only_allowed(self, device: ExcelInventoryDevice, decision: TransportDecision) -> None:
         allowlist = {item.strip() for item in self.settings.lab_device_allowlist.split(",") if item.strip()}
-        identifiers = {device.id, device.label, device.hostname, device.ip_address}
-        if not allowlist.intersection(identifiers):
-            raise SafetyError(f"Device {device.label} / {device.ip_address} is not in NCP_LAB_DEVICE_ALLOWLIST")
+        if device.ip_address not in allowlist:
+            raise SafetyError(f"Device {device.ip_address} ({device.label}) is not in NCP_LAB_DEVICE_ALLOWLIST")
         if decision.selected_transport in {TransportKind.unsupported, TransportKind.icmp_only} or decision.family == DeviceFamily.unknown:
             raise SafetyError(f"{decision.selected_transport.value} cannot run Excel lab backup")
 
@@ -275,7 +296,19 @@ class ExcelLabApplyExecutor:
                 error="; ".join(credential_reasons),
             )
         try:
-            self.state.reserve_lock(device.id, "excel lab apply")
+            self.state.reserve_lock(
+                device.id,
+                "excel lab apply",
+                display_name=f"{device.ip_address} ({device.label})",
+                metadata={
+                    "internal_device_id": device.id,
+                    "device_ip": device.ip_address,
+                    "device_label": device.label,
+                    "hostname": device.hostname,
+                    "vendor": device.vendor,
+                    "model": device.model,
+                },
+            )
         except SafetyError as exc:
             return ExcelApplyResult(
                 executed=False,
@@ -309,7 +342,12 @@ class ExcelLabApplyExecutor:
             self.state.save_execution(
                 {
                     "device_id": device.id,
+                    "internal_device_id": device.id,
+                    "device_ip": device.ip_address,
                     "device_label": device.label,
+                    "hostname": device.hostname,
+                    "vendor": device.vendor,
+                    "model": device.model,
                     "real_lab": real_lab,
                     "transport_kind": result.transport_kind,
                     "command_count": result.command_count,
@@ -323,7 +361,16 @@ class ExcelLabApplyExecutor:
                 actor=actor,
                 object_type="device",
                 object_id=device.id,
-                metadata=result.to_dict(),
+                metadata={
+                    "device_id": device.id,
+                    "internal_device_id": device.id,
+                    "device_ip": device.ip_address,
+                    "device_label": device.label,
+                    "hostname": device.hostname,
+                    "vendor": device.vendor,
+                    "model": device.model,
+                    **result.to_dict(),
+                },
             )
             return result
         finally:
@@ -364,8 +411,8 @@ class ExcelLabApplyExecutor:
 
         settings = get_settings()
         allowlist = {item.strip() for item in settings.lab_device_allowlist.split(",") if item.strip()}
-        if not allowlist.intersection({device.id, device.label, device.hostname, device.ip_address}):
-            return "Device is not in NCP_LAB_DEVICE_ALLOWLIST"
+        if device.ip_address not in allowlist:
+            return f"Device {device.ip_address} ({device.label}) is not in NCP_LAB_DEVICE_ALLOWLIST"
         if real_lab and (
             not settings.allow_real_device_apply
             or not settings.lab_real_apply_enabled

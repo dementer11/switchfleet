@@ -100,6 +100,154 @@ def test_excel_lab_cli_list_runs_from_excel(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "sw1-lab" in result.stdout
     assert "cisco_ios" in result.stdout
+    payload = json.loads(result.stdout)
+    first = payload["devices"][0]
+    assert first["device_ip"] == "192.0.2.67"
+    assert first["ip_address"] == "192.0.2.67"
+    assert first["vendor"] == "Cisco"
+    assert first["model"] == "Catalyst 2960"
+    assert first["family"] == "cisco_ios"
+    assert first["selected_transport"] == "netmiko"
+    assert first["backup_supported"] is True
+    assert first["apply_support_level"] == "lab_apply_candidate"
+    assert "id" not in first
+    assert "internal_device_id" not in first
+
+
+def test_excel_lab_cli_allowlisted_only_uses_ip_not_internal_id(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    inventory = write_inventory(tmp_path / "inventory.xlsx")
+    device = load_excel_inventory(inventory)[0]
+    env = os.environ.copy()
+
+    env["NCP_LAB_DEVICE_ALLOWLIST"] = device.ip_address
+    by_ip = subprocess.run(
+        [sys.executable, "scripts/excel_lab.py", str(inventory), "list", "--allowlisted-only"],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    env["NCP_LAB_DEVICE_ALLOWLIST"] = device.id
+    by_internal = subprocess.run(
+        [sys.executable, "scripts/excel_lab.py", str(inventory), "list", "--allowlisted-only"],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert by_ip.returncode == 0, by_ip.stderr
+    by_ip_devices = json.loads(by_ip.stdout)["devices"]
+    assert [item["device_ip"] for item in by_ip_devices] == [device.ip_address]
+    assert by_ip_devices[0]["lab_allowed"] is True
+    assert "internal_device_id" not in by_ip_devices[0]
+    assert by_internal.returncode == 0, by_internal.stderr
+    assert json.loads(by_internal.stdout)["devices"] == []
+
+
+def test_excel_lab_cli_summary_allowlist_count_uses_ip_not_internal_id(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    inventory = write_inventory(tmp_path / "inventory.xlsx")
+    device = load_excel_inventory(inventory)[0]
+    env = os.environ.copy()
+
+    env["NCP_LAB_DEVICE_ALLOWLIST"] = device.ip_address
+    by_ip = subprocess.run(
+        [sys.executable, "scripts/excel_lab.py", str(inventory), "summary"],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    env["NCP_LAB_DEVICE_ALLOWLIST"] = device.id
+    by_internal = subprocess.run(
+        [sys.executable, "scripts/excel_lab.py", str(inventory), "summary"],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert by_ip.returncode == 0, by_ip.stderr
+    assert json.loads(by_ip.stdout)["allowlisted_count"] == 1
+    assert by_internal.returncode == 0, by_internal.stderr
+    assert json.loads(by_internal.stdout)["allowlisted_count"] == 0
+
+
+def test_excel_lab_cli_device_selector_is_ip_first(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    inventory = write_inventory(tmp_path / "inventory.xlsx")
+    device = load_excel_inventory(inventory)[0]
+
+    by_ip = subprocess.run(
+        [sys.executable, "scripts/excel_lab.py", str(inventory), "check-runtime", "--ip", device.ip_address],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    by_label = subprocess.run(
+        [sys.executable, "scripts/excel_lab.py", str(inventory), "check-runtime", "--device", device.label],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    unknown = subprocess.run(
+        [sys.executable, "scripts/excel_lab.py", str(inventory), "check-runtime", "--device", "192.0.2.250"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    by_internal = subprocess.run(
+        [sys.executable, "scripts/excel_lab.py", str(inventory), "check-runtime", "--device", device.id],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert by_ip.returncode == 0, by_ip.stderr
+    assert json.loads(by_ip.stdout)["device_ip"] == device.ip_address
+    assert by_label.returncode != 0
+    assert "Use the device IP address" in by_label.stderr
+    assert unknown.returncode != 0
+    assert "Device IP '192.0.2.250' was not found" in unknown.stderr
+    assert by_internal.returncode == 0, by_internal.stderr
+    internal_payload = json.loads(by_internal.stdout)
+    assert internal_payload["selector_warning"] == "Internal device IDs are deprecated for CLI use; use IP address instead."
+    assert internal_payload["device_ip"] == device.ip_address
+
+
+def test_excel_lab_cli_duplicate_ip_fails_closed(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    inventory = write_inventory(
+        tmp_path / "inventory.xlsx",
+        [
+            ["Active", "switch-a", "Catalyst 2960", "192.0.2.67", "Cisco", "Switch", "Lab", "NetOps"],
+            ["Active", "switch-b", "Catalyst 2960", "192.0.2.67", "Cisco", "Switch", "Lab", "NetOps"],
+        ],
+    )
+    result = subprocess.run(
+        [sys.executable, "scripts/excel_lab.py", str(inventory), "check-runtime", "--device", "192.0.2.67"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "Duplicate IP address" in result.stderr
+    assert "switch-a" in result.stderr
+    assert "switch-b" in result.stderr
 
 
 def test_excel_lab_cli_summary_and_check_runtime_show_real_inventory_status(tmp_path: Path) -> None:
@@ -119,7 +267,7 @@ def test_excel_lab_cli_summary_and_check_runtime_show_real_inventory_status(tmp_
         check=False,
     )
     runtime = subprocess.run(
-        [sys.executable, "scripts/excel_lab.py", str(inventory), "check-runtime", "--device", "qtech-lab"],
+        [sys.executable, "scripts/excel_lab.py", str(inventory), "check-runtime", "--device", "192.0.2.67"],
         cwd=repo_root,
         capture_output=True,
         text=True,
@@ -139,10 +287,12 @@ def test_excel_lab_cli_summary_and_check_runtime_show_real_inventory_status(tmp_
     assert '"blocked_count": 1' in summary.stdout
     assert '"candidate_count": 0' in summary.stdout
     assert runtime.returncode == 0, runtime.stderr
+    assert '"selector_used": "192.0.2.67"' in runtime.stdout
+    assert '"device_ip": "192.0.2.67"' in runtime.stdout
     assert '"original_vendor": "QTECH"' in runtime.stdout
     assert '"normalized_vendor": "QTECH"' in runtime.stdout
     assert '"family": "qtech"' in runtime.stdout
-    assert '"transport": "custom_cli"' in runtime.stdout
+    assert '"selected_transport": "custom_cli"' in runtime.stdout
     assert '"status": "blocked_until_certified"' in runtime.stdout
     assert "config_apply_allowed is false globally" in runtime.stdout
 
@@ -163,7 +313,7 @@ def test_excel_lab_cli_password_dry_run_stores_private_hash_without_plaintext(tm
             str(inventory),
             "dry-run",
             "--device",
-            "sw1-lab",
+            "192.0.2.67",
             "--operation",
             "password_change",
             "--username",
@@ -222,6 +372,7 @@ def test_excel_lab_cli_required_workflow_reaches_fake_execute_without_db_or_ssh(
     run(["add-credential", "--name", "lab-admin", "--username", "admin", "--password-env", "SWITCHFLEET_TEST_PASSWORD"])
     dry_run = run(["dry-run", "--device", device.ip_address, "--operation", "vlan_create", "--vlan-id", "123", "--name", "TEST"])
     command_hash = json.loads(dry_run.stdout)["command_hash"]
+    assert json.loads(dry_run.stdout)["device_ip"] == device.ip_address
     FileLabState(state_dir).save_backup(device.id, "hostname sw1\nusername admin secret SHOULD_NOT_LEAK", {"source": "unit"})
     before_cert = run(
         [
@@ -240,8 +391,18 @@ def test_excel_lab_cli_required_workflow_reaches_fake_execute_without_db_or_ssh(
             command_hash,
         ]
     )
-    assert "lab_validation" in json.loads(before_cert.stdout)["denied_gates"]
-    run(["certify", "--device", device.ip_address, "--capability", "vlan_create", "--credential", "lab-admin"])
+    before_payload = json.loads(before_cert.stdout)
+    assert before_payload["device_ip"] == device.ip_address
+    assert "device_id" not in before_payload
+    assert "internal_device_id" not in before_payload
+    assert "lab_validation" in before_payload["denied_gates"]
+    certified = run(["certify", "--device", device.ip_address, "--capability", "vlan_create", "--credential", "lab-admin"])
+    assert json.loads(certified.stdout)["device_ip"] == device.ip_address
+    certification_report = run(["certification-report"])
+    report_payload = json.loads(certification_report.stdout)
+    report_text = json.dumps(report_payload)
+    assert device.ip_address in report_text
+    assert device.id not in report_text
     after_cert = run(
         [
             "evaluate-apply",
@@ -259,7 +420,11 @@ def test_excel_lab_cli_required_workflow_reaches_fake_execute_without_db_or_ssh(
             command_hash,
         ]
     )
-    assert json.loads(after_cert.stdout)["allowed"] is True
+    after_payload = json.loads(after_cert.stdout)
+    assert after_payload["device_ip"] == device.ip_address
+    assert "device_id" not in after_payload
+    assert "internal_device_id" not in after_payload
+    assert after_payload["allowed"] is True
     executed = run(
         [
             "execute-apply",
@@ -277,10 +442,29 @@ def test_excel_lab_cli_required_workflow_reaches_fake_execute_without_db_or_ssh(
             command_hash,
         ]
     )
-    assert json.loads(executed.stdout)["execution"]["fake_transport"] is True
+    executed_payload = json.loads(executed.stdout)
+    assert executed_payload["device_ip"] == device.ip_address
+    assert "device_id" not in executed_payload["decision"]
+    assert "internal_device_id" not in executed_payload["decision"]
+    assert executed_payload["execution"]["fake_transport"] is True
+    audit_tail = run(["audit-tail", "--limit", "20"])
+    audit_payload = json.loads(audit_tail.stdout)
+    audit_text = json.dumps(audit_payload)
+    assert device.ip_address in audit_text
+    assert device.id not in audit_text
     state_text = "\n".join(path.read_text(encoding="utf-8") for path in state_dir.rglob("*") if path.is_file())
     assert "VaultSecret" not in state_text
     assert "SHOULD_NOT_LEAK" not in state_text
+    dry_runs = json.loads((state_dir / "dry_runs.json").read_text(encoding="utf-8"))["dry_runs"]
+    evaluations = json.loads((state_dir / "evaluations.json").read_text(encoding="utf-8"))["evaluations"]
+    validations = json.loads((state_dir / "lab_validations.json").read_text(encoding="utf-8"))["lab_validations"]
+    locks = json.loads((state_dir / "locks.json").read_text(encoding="utf-8"))["locks"]
+    executions = [json.loads(path.read_text(encoding="utf-8")) for path in (state_dir / "executions").glob("*.json")]
+    assert dry_runs[0]["device_ip"] == device.ip_address
+    assert evaluations[0]["device_ip"] == device.ip_address
+    assert validations[0]["device_ip"] == device.ip_address
+    assert locks[0]["device_ip"] == device.ip_address
+    assert executions[0]["device_ip"] == device.ip_address
 
 
 def test_excel_lab_cli_import_does_not_load_db_session() -> None:
@@ -364,15 +548,15 @@ os.environ["SWITCHFLEET_TEST_PASSWORD"] = "VaultSecret"
 import scripts.excel_lab as cli
 
 cli.main(["--state-dir", sys.argv[2], sys.argv[1], "add-credential", "--name", "lab-admin", "--username", "admin", "--password-env", "SWITCHFLEET_TEST_PASSWORD"])
-cli.main(["--state-dir", sys.argv[2], sys.argv[1], "dry-run", "--device", "sw1-lab", "--operation", "vlan_create", "--vlan-id", "123", "--name", "TEST"])
-cli.main(["--state-dir", sys.argv[2], sys.argv[1], "evaluate-apply", "--device", "sw1-lab", "--credential", "lab-admin", "--operation", "vlan_create", "--vlan-id", "123", "--name", "TEST", "--simulation-hash", "missing"])
+cli.main(["--state-dir", sys.argv[2], sys.argv[1], "dry-run", "--device", "192.0.2.67", "--operation", "vlan_create", "--vlan-id", "123", "--name", "TEST"])
+cli.main(["--state-dir", sys.argv[2], sys.argv[1], "evaluate-apply", "--device", "192.0.2.67", "--credential", "lab-admin", "--operation", "vlan_create", "--vlan-id", "123", "--name", "TEST", "--simulation-hash", "missing"])
 try:
-    cli.main(["--state-dir", sys.argv[2], sys.argv[1], "backup", "--device", "sw1-lab", "--credential", "lab-admin"])
+    cli.main(["--state-dir", sys.argv[2], sys.argv[1], "backup", "--device", "192.0.2.67", "--credential", "lab-admin"])
 except SystemExit as exc:
     assert "NCP_LAB_DEVICE_ALLOWLIST" in str(exc)
 else:
     raise AssertionError("backup unexpectedly succeeded without allowlist")
-cli.main(["--state-dir", sys.argv[2], sys.argv[1], "execute-apply", "--device", "sw1-lab", "--credential", "lab-admin", "--operation", "vlan_create", "--vlan-id", "123", "--name", "TEST", "--simulation-hash", "missing"])
+cli.main(["--state-dir", sys.argv[2], sys.argv[1], "execute-apply", "--device", "192.0.2.67", "--credential", "lab-admin", "--operation", "vlan_create", "--vlan-id", "123", "--name", "TEST", "--simulation-hash", "missing"])
 """
     result = subprocess.run(
         [sys.executable, "-c", code, str(inventory), str(state_dir)],
@@ -435,7 +619,11 @@ def test_local_working_version_checklist_is_linked_and_keeps_workflow_order() ->
     checklist = (repo_root / "docs" / "local-working-version-checklist.md").read_text(encoding="utf-8")
 
     assert "docs/local-working-version-checklist.md" in readme
+    assert "Use IP address as the operator-facing device selector" in readme
+    assert "Internal generated IDs are implementation details" in readme
     assert "does not require PostgreSQL, Alembic, FastAPI startup, Redis, Docker, or database imports" in checklist
+    assert "Use IP address as the operator-facing device selector" in checklist
+    assert "Internal generated IDs are implementation details" in checklist
     assert checklist.index("switchfleet inventory.xlsx doctor") < checklist.index("switchfleet inventory.xlsx summary")
     assert checklist.index("switchfleet inventory.xlsx summary") < checklist.index("switchfleet inventory.xlsx list")
     assert checklist.index("switchfleet inventory.xlsx add-credential") < checklist.index("switchfleet inventory.xlsx backup")
