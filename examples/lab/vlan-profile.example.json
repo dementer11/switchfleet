@@ -1,0 +1,8 @@
+{
+  "operation": "vlan_create",
+  "credential": "lab-admin",
+  "parameters": {
+    "vlan_id": 123,
+    "name": "TEST_VLAN"
+  }
+}

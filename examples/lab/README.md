@@ -11,7 +11,10 @@ switchfleet examples/lab/inventory.example.xlsx doctor
 switchfleet examples/lab/inventory.example.xlsx summary
 switchfleet examples/lab/inventory.example.xlsx list
 switchfleet examples/lab/inventory.example.xlsx check-runtime --device 192.0.2.10
+switchfleet examples/lab/inventory.example.xlsx check-runtime --all
 ```
+
+Use `--human` to force table output when running through terminal wrappers, log capture, or remote shells. Use `--json` for automation.
 
 The Excel example uses only documentation-range lab IP addresses and includes supported, candidate, and blocked classifications:
 
@@ -39,6 +42,18 @@ Keep production apply disabled:
 ```powershell
 $env:NCP_PRODUCTION_REAL_APPLY_ENABLED = "false"
 ```
+
+Use `vlan-profile.example.json` to reuse the same planned parameters across the Excel inventory:
+
+```powershell
+switchfleet examples/lab/inventory.example.xlsx dry-run --all --profile examples/lab/vlan-profile.example.json
+switchfleet examples/lab/inventory.example.xlsx evaluate-apply --all --profile examples/lab/vlan-profile.example.json
+switchfleet examples/lab/inventory.example.xlsx workflow --profile examples/lab/vlan-profile.example.json
+switchfleet examples/lab/inventory.example.xlsx execute-apply --device 192.0.2.10 --profile examples/lab/vlan-profile.example.json --simulation-hash <hash-from-dry-run> --real-lab
+```
+
+The profile is a planning input only. Add `--with-backup` to `workflow` when you intentionally want read-only SSH backup across allowlisted devices before dry-run/evaluate. Bulk real-lab execution is intentionally disabled; execute real changes per device after reviewing that device's backup, dry-run hash, gate evaluation, and certification state.
+`workflow` writes readable Markdown and JSON reports under `.switchfleet_lab/reports/`.
 
 ## Optional DB-backed prototype mode
 

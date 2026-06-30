@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -66,6 +67,34 @@ def test_file_lab_state_writes_json_jsonl_and_backups(tmp_path: Path) -> None:
     assert "SHOULD_NOT_LEAK" not in (state.paths.backups / "index.json").read_text(encoding="utf-8")
     assert event["metadata"]["password"] == "<redacted>"
     assert state.audit_tail(1)[0]["id"] == event["id"]
+
+
+def test_file_lab_state_saves_sanitized_reports(tmp_path: Path) -> None:
+    state = FileLabState(tmp_path / ".switchfleet_lab")
+
+    report = state.save_report(
+        "workflow",
+        {
+            "device_ip": "192.0.2.67",
+            "password": "SHOULD_NOT_LEAK",
+            "results": [{"command": "username admin secret SHOULD_NOT_LEAK"}],
+        },
+        "# Workflow\n\npassword SHOULD_NOT_LEAK\n",
+    )
+
+    json_path = state.paths.root / report["json_path"]
+    markdown_path = state.paths.root / report["markdown_path"]
+    stored = json.loads(json_path.read_text(encoding="utf-8"))
+    markdown = markdown_path.read_text(encoding="utf-8")
+
+    assert report["kind"] == "workflow"
+    assert Path(report["json_path"]).parts[0] == "reports"
+    assert Path(report["markdown_path"]).parts[0] == "reports"
+    assert stored["payload"]["device_ip"] == "192.0.2.67"
+    assert stored["payload"]["password"] == "<redacted>"
+    assert "SHOULD_NOT_LEAK" not in json_path.read_text(encoding="utf-8")
+    assert "SHOULD_NOT_LEAK" not in markdown
+    assert "<redacted>" in markdown
 
 
 def test_file_lab_state_keeps_same_hash_for_different_devices(tmp_path: Path) -> None:

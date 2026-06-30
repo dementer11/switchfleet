@@ -137,11 +137,19 @@ class NetmikoCommandTransport:
                 enable_password=credentials.enable_password,
                 port=port,
                 timeout=timeout,
+                conn_timeout=timeout,
+                auth_timeout=timeout,
+                banner_timeout=timeout,
             )
         )
 
     def open(self) -> None:
-        self._transport.open()
+        try:
+            self._transport.open()
+        except Exception as exc:
+            self.close()
+            phase = _connection_failure_phase(exc)
+            raise RuntimeError(build_transport_diagnostic(self.decision, phase, str(exc))) from exc
 
     def close(self) -> None:
         self._transport.close()

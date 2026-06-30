@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import os
 import subprocess
@@ -9,6 +10,16 @@ from pathlib import Path
 from app.services.excel_inventory import load_excel_inventory
 from app.services.file_lab_state import FileLabState
 from tests.enterprise.excel_lab_helpers import write_inventory
+
+
+REAL_INVENTORY_MODELS_CSV = Path(__file__).resolve().parents[1] / "fixtures" / "real_inventory_models.csv"
+
+
+def real_inventory_rows() -> list[list[str]]:
+    with REAL_INVENTORY_MODELS_CSV.open(newline="", encoding="utf-8") as handle:
+        reader = csv.reader(handle)
+        next(reader)
+        return [row for row in reader]
 
 
 def test_excel_lab_cli_help_and_doctor_without_db(tmp_path: Path) -> None:
@@ -250,6 +261,704 @@ def test_excel_lab_cli_duplicate_ip_fails_closed(tmp_path: Path) -> None:
     assert "switch-b" in result.stderr
 
 
+def test_excel_lab_cli_all_runtime_and_dry_run_cover_every_excel_device(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    inventory = write_inventory(
+        tmp_path / "inventory.xlsx",
+        [
+            ["Active", "cisco-lab", "Catalyst 2960", "192.0.2.67", "Cisco", "Switch", "Lab", "NetOps"],
+            ["Active", "huawei-lab", "S5735", "192.0.2.68", "Huawei", "Switch", "Lab", "NetOps"],
+        ],
+    )
+    state_dir = tmp_path / ".switchfleet_lab"
+
+    runtime = subprocess.run(
+        [sys.executable, "scripts/excel_lab.py", "--state-dir", str(state_dir), str(inventory), "check-runtime", "--all"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    dry_run = subprocess.run(
+        [
+            sys.executable,
+            "scripts/excel_lab.py",
+            "--state-dir",
+            str(state_dir),
+            str(inventory),
+            "dry-run",
+            "--all",
+            "--operation",
+            "vlan_create",
+            "--vlan-id",
+            "123",
+            "--name",
+            "TEST",
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert runtime.returncode == 0, runtime.stderr
+    runtime_payload = json.loads(runtime.stdout)
+    assert [item["device_ip"] for item in runtime_payload["devices"]] == ["192.0.2.67", "192.0.2.68"]
+    assert {item["family"] for item in runtime_payload["devices"]} == {"cisco_ios", "huawei_vrp"}
+    assert "internal_device_id" not in json.dumps(runtime_payload)
+
+    assert dry_run.returncode == 0, dry_run.stderr
+    dry_run_payload = json.loads(dry_run.stdout)
+    assert [item["status"] for item in dry_run_payload["results"]] == ["ok", "ok"]
+    assert [item["device_ip"] for item in dry_run_payload["results"]] == ["192.0.2.67", "192.0.2.68"]
+    assert all(item["command_hash"] for item in dry_run_payload["results"])
+    stored = json.loads((state_dir / "dry_runs.json").read_text(encoding="utf-8"))["dry_runs"]
+    assert sorted(item["device_ip"] for item in stored) == ["192.0.2.67", "192.0.2.68"]
+
+
+def test_excel_lab_cli_all_evaluate_uses_latest_per_device_dry_run_hash(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    inventory = write_inventory(
+        tmp_path / "inventory.xlsx",
+        [
+            ["Active", "cisco-lab", "Catalyst 2960", "192.0.2.67", "Cisco", "Switch", "Lab", "NetOps"],
+            ["Active", "huawei-lab", "S5735", "192.0.2.68", "Huawei", "Switch", "Lab", "NetOps"],
+        ],
+    )
+    state_dir = tmp_path / ".switchfleet_lab"
+    env = os.environ.copy()
+    env["NCP_SECRET_KEY"] = "excel-lab-secret-key"
+    env["SWITCHFLEET_TEST_PASSWORD"] = "VaultSecret"
+
+    add_credential = subprocess.run(
+        [
+            sys.executable,
+            "scripts/excel_lab.py",
+            "--state-dir",
+            str(state_dir),
+            str(inventory),
+            "add-credential",
+            "--name",
+            "lab-admin",
+            "--username",
+            "admin",
+            "--password-env",
+            "SWITCHFLEET_TEST_PASSWORD",
+        ],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    dry_run = subprocess.run(
+        [
+            sys.executable,
+            "scripts/excel_lab.py",
+            "--state-dir",
+            str(state_dir),
+            str(inventory),
+            "dry-run",
+            "--all",
+            "--operation",
+            "vlan_create",
+            "--vlan-id",
+            "123",
+            "--name",
+            "TEST",
+        ],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    evaluate = subprocess.run(
+        [
+            sys.executable,
+            "scripts/excel_lab.py",
+            "--state-dir",
+            str(state_dir),
+            str(inventory),
+            "evaluate-apply",
+            "--all",
+            "--credential",
+            "lab-admin",
+            "--operation",
+            "vlan_create",
+            "--vlan-id",
+            "123",
+            "--name",
+            "TEST",
+        ],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert add_credential.returncode == 0, add_credential.stderr
+    assert dry_run.returncode == 0, dry_run.stderr
+    dry_hashes = {item["device_ip"]: item["command_hash"] for item in json.loads(dry_run.stdout)["results"]}
+    assert evaluate.returncode == 0, evaluate.stderr
+    results = json.loads(evaluate.stdout)["results"]
+    assert [item["status"] for item in results] == ["ok", "ok"]
+    assert {item["device_ip"]: item["command_hash"] for item in results} == dry_hashes
+    assert all("fresh_backup" in item["denied_gates"] for item in results)
+
+
+def test_excel_lab_cli_profile_drives_bulk_dry_run_and_evaluate(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    inventory = write_inventory(
+        tmp_path / "inventory.xlsx",
+        [
+            ["Active", "cisco-lab", "Catalyst 2960", "192.0.2.67", "Cisco", "Switch", "Lab", "NetOps"],
+            ["Active", "huawei-lab", "S5735", "192.0.2.68", "Huawei", "Switch", "Lab", "NetOps"],
+        ],
+    )
+    profile = tmp_path / "vlan-profile.json"
+    profile.write_text(
+        json.dumps(
+            {
+                "operation": "vlan_create",
+                "credential": "lab-admin",
+                "parameters": {"vlan_id": 321, "name": "PROFILE_VLAN"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    state_dir = tmp_path / ".switchfleet_lab"
+    env = os.environ.copy()
+    env["NCP_SECRET_KEY"] = "excel-lab-secret-key"
+    env["SWITCHFLEET_TEST_PASSWORD"] = "VaultSecret"
+
+    add_credential = subprocess.run(
+        [
+            sys.executable,
+            "scripts/excel_lab.py",
+            "--state-dir",
+            str(state_dir),
+            str(inventory),
+            "add-credential",
+            "--name",
+            "lab-admin",
+            "--username",
+            "admin",
+            "--password-env",
+            "SWITCHFLEET_TEST_PASSWORD",
+        ],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    dry_run = subprocess.run(
+        [
+            sys.executable,
+            "scripts/excel_lab.py",
+            "--state-dir",
+            str(state_dir),
+            str(inventory),
+            "dry-run",
+            "--all",
+            "--profile",
+            str(profile),
+        ],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    evaluate = subprocess.run(
+        [
+            sys.executable,
+            "scripts/excel_lab.py",
+            "--state-dir",
+            str(state_dir),
+            str(inventory),
+            "evaluate-apply",
+            "--all",
+            "--profile",
+            str(profile),
+        ],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert add_credential.returncode == 0, add_credential.stderr
+    assert dry_run.returncode == 0, dry_run.stderr
+    dry_payload = json.loads(dry_run.stdout)
+    assert [item["status"] for item in dry_payload["results"]] == ["ok", "ok"]
+    rendered = json.dumps(dry_payload)
+    assert "vlan 321" in rendered
+    assert "PROFILE_VLAN" in rendered
+    assert evaluate.returncode == 0, evaluate.stderr
+    eval_payload = json.loads(evaluate.stdout)
+    assert [item["status"] for item in eval_payload["results"]] == ["ok", "ok"]
+    assert {item["operation"] for item in eval_payload["results"]} == {"vlan_create"}
+
+
+def test_excel_lab_cli_workflow_runs_profile_for_all_devices_without_real_apply(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    inventory = write_inventory(
+        tmp_path / "inventory.xlsx",
+        [
+            ["Active", "cisco-lab", "Catalyst 2960", "192.0.2.67", "Cisco", "Switch", "Lab", "NetOps"],
+            ["Active", "huawei-lab", "S5735", "192.0.2.68", "Huawei", "Switch", "Lab", "NetOps"],
+        ],
+    )
+    profile = tmp_path / "vlan-profile.json"
+    profile.write_text(
+        json.dumps(
+            {
+                "operation": "vlan_create",
+                "credential": "lab-admin",
+                "parameters": {"vlan_id": 321, "name": "PROFILE_VLAN"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    state_dir = tmp_path / ".switchfleet_lab"
+    env = os.environ.copy()
+    env["NCP_SECRET_KEY"] = "excel-lab-secret-key"
+    env["SWITCHFLEET_TEST_PASSWORD"] = "VaultSecret"
+
+    add_credential = subprocess.run(
+        [
+            sys.executable,
+            "scripts/excel_lab.py",
+            "--state-dir",
+            str(state_dir),
+            str(inventory),
+            "add-credential",
+            "--name",
+            "lab-admin",
+            "--username",
+            "admin",
+            "--password-env",
+            "SWITCHFLEET_TEST_PASSWORD",
+        ],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    workflow = subprocess.run(
+        [
+            sys.executable,
+            "scripts/excel_lab.py",
+            "--state-dir",
+            str(state_dir),
+            str(inventory),
+            "workflow",
+            "--profile",
+            str(profile),
+        ],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert add_credential.returncode == 0, add_credential.stderr
+    assert workflow.returncode == 0, workflow.stderr
+    payload = json.loads(workflow.stdout)
+    assert payload["workflow"]["real_apply_executed"] is False
+    assert payload["workflow"]["credential_ref"] == "lab-admin"
+    assert payload["workflow"]["parameters"] == {"name": "PROFILE_VLAN", "vlan_id": 321}
+    assert payload["workflow"]["backup"] == {"skipped": 2}
+    assert payload["workflow"]["dry_run"] == {"ok": 2}
+    assert payload["workflow"]["evaluate"] == {"ok": 2}
+    assert [item["device_ip"] for item in payload["results"]] == ["192.0.2.67", "192.0.2.68"]
+    assert all(item["dry_run_status"] == "ok" for item in payload["results"])
+    assert all(item["evaluate_status"] == "ok" for item in payload["results"])
+    assert all(item["command_hash"] for item in payload["results"])
+    report = payload["workflow"]["report"]
+    markdown_path = state_dir / report["markdown_path"]
+    json_path = state_dir / report["json_path"]
+    assert report["kind"] == "workflow"
+    assert markdown_path.exists()
+    assert json_path.exists()
+    markdown = markdown_path.read_text(encoding="utf-8")
+    report_payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert "192.0.2.67" in markdown
+    assert "192.0.2.68" in markdown
+    assert "vlan_create" in markdown
+    assert "vlan_id=321" in markdown
+    assert "name=PROFILE_VLAN" in markdown
+    assert "VaultSecret" not in markdown
+    assert "VaultSecret" not in json.dumps(report_payload)
+    assert report_payload["payload"]["workflow"]["real_apply_executed"] is False
+    assert report_payload["payload"]["workflow"]["credential_ref"] == "lab-admin"
+    assert report_payload["payload"]["workflow"]["credential"] == "<redacted>"
+
+
+def test_excel_lab_cli_packaged_example_workflow_covers_all_vendors_without_real_apply(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    inventory = repo_root / "examples" / "lab" / "inventory.example.xlsx"
+    profile = repo_root / "examples" / "lab" / "vlan-profile.example.json"
+    state_dir = tmp_path / ".switchfleet_lab"
+
+    workflow = subprocess.run(
+        [
+            sys.executable,
+            "scripts/excel_lab.py",
+            "--state-dir",
+            str(state_dir),
+            str(inventory),
+            "workflow",
+            "--profile",
+            str(profile),
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert workflow.returncode == 0, workflow.stderr
+    payload = json.loads(workflow.stdout)
+    assert payload["workflow"]["device_count"] == 12
+    assert payload["workflow"]["parameters"] == {"name": "TEST_VLAN", "vlan_id": 123}
+    assert payload["workflow"]["real_apply_executed"] is False
+    assert payload["workflow"]["backup"] == {"skipped": 12}
+    assert payload["workflow"]["dry_run"]["ok"] >= 5
+    assert payload["workflow"]["evaluate"]["ok"] >= 5
+    results_by_label = {item["label"]: item for item in payload["results"]}
+    assert set(results_by_label) == {
+        "huawei-s5735",
+        "hpe-1910",
+        "hpe-2530",
+        "qtech-4610",
+        "eltex-2324",
+        "bulat-bs2500",
+        "dell-3524",
+        "cisco-2960",
+        "dlink-des1100",
+        "continent-500",
+        "unknown-snmp",
+        "icmp-only",
+    }
+    for label in ("huawei-s5735", "hpe-1910", "hpe-2530", "dell-3524", "cisco-2960"):
+        assert results_by_label[label]["dry_run_status"] == "ok"
+        assert results_by_label[label]["evaluate_status"] == "ok"
+        assert results_by_label[label]["command_hash"]
+    for label in (
+        "qtech-4610",
+        "eltex-2324",
+        "bulat-bs2500",
+        "dlink-des1100",
+        "continent-500",
+        "unknown-snmp",
+        "icmp-only",
+    ):
+        assert results_by_label[label]["dry_run_status"] == "failed"
+        assert results_by_label[label]["evaluate_status"] == "failed"
+        assert results_by_label[label]["error"]
+    assert "excel-" not in json.dumps(payload)
+    markdown_path = state_dir / payload["workflow"]["report"]["markdown_path"]
+    assert markdown_path.exists()
+    markdown = markdown_path.read_text(encoding="utf-8")
+    assert "192.0.2.10" in markdown
+    assert "qtech-4610" in markdown
+    assert "Bulk real-lab execution is intentionally disabled" in markdown
+
+
+def test_excel_lab_cli_real_inventory_model_fixture_workflow_does_not_abort_on_any_vendor(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    inventory = write_inventory(tmp_path / "real-inventory.xlsx", real_inventory_rows())
+    profile = repo_root / "examples" / "lab" / "vlan-profile.example.json"
+    state_dir = tmp_path / ".switchfleet_lab"
+
+    workflow = subprocess.run(
+        [
+            sys.executable,
+            "scripts/excel_lab.py",
+            "--state-dir",
+            str(state_dir),
+            str(inventory),
+            "workflow",
+            "--profile",
+            str(profile),
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert workflow.returncode == 0, workflow.stderr
+    payload = json.loads(workflow.stdout)
+    results = payload["results"]
+    labels = {item["label"] for item in results}
+
+    assert payload["workflow"]["device_count"] == len(real_inventory_rows())
+    assert payload["workflow"]["parameters"] == {"name": "TEST_VLAN", "vlan_id": 123}
+    assert payload["workflow"]["real_apply_executed"] is False
+    assert len(results) == len(real_inventory_rows())
+    assert {
+        "huawei-s5735",
+        "huawei-ce6855",
+        "3com-s4210",
+        "hpe-2530",
+        "qtech-4610",
+        "eltex-2448",
+        "bulat-bk",
+        "dell-3524",
+        "cisco-37xx",
+        "dlink-des1100",
+        "continent-500",
+        "unknown-snmp",
+        "icmp-only",
+    }.issubset(labels)
+    assert any(item["dry_run_status"] == "ok" for item in results)
+    assert any(item["dry_run_status"] == "failed" for item in results)
+    assert all(item["device_ip"].startswith("192.0.2.") for item in results)
+    assert "excel-" not in json.dumps(payload)
+    assert payload["workflow"]["allowed_count"] == 0
+    assert (state_dir / payload["workflow"]["report"]["markdown_path"]).exists()
+
+
+def test_excel_lab_cli_workflow_with_backup_reports_per_device_failures_without_stopping(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    inventory = write_inventory(
+        tmp_path / "inventory.xlsx",
+        [
+            ["Active", "cisco-lab", "Catalyst 2960", "192.0.2.67", "Cisco", "Switch", "Lab", "NetOps"],
+            ["Active", "huawei-lab", "S5735", "192.0.2.68", "Huawei", "Switch", "Lab", "NetOps"],
+        ],
+    )
+    profile = tmp_path / "vlan-profile.json"
+    profile.write_text(
+        json.dumps(
+            {
+                "operation": "vlan_create",
+                "credential": "lab-admin",
+                "parameters": {"vlan_id": 321, "name": "PROFILE_VLAN"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    state_dir = tmp_path / ".switchfleet_lab"
+    env = os.environ.copy()
+    env["NCP_SECRET_KEY"] = "excel-lab-secret-key"
+    env["SWITCHFLEET_TEST_PASSWORD"] = "VaultSecret"
+
+    add_credential = subprocess.run(
+        [
+            sys.executable,
+            "scripts/excel_lab.py",
+            "--state-dir",
+            str(state_dir),
+            str(inventory),
+            "add-credential",
+            "--name",
+            "lab-admin",
+            "--username",
+            "admin",
+            "--password-env",
+            "SWITCHFLEET_TEST_PASSWORD",
+        ],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    workflow = subprocess.run(
+        [
+            sys.executable,
+            "scripts/excel_lab.py",
+            "--state-dir",
+            str(state_dir),
+            str(inventory),
+            "workflow",
+            "--profile",
+            str(profile),
+            "--with-backup",
+        ],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert add_credential.returncode == 0, add_credential.stderr
+    assert workflow.returncode == 0, workflow.stderr
+    payload = json.loads(workflow.stdout)
+    assert payload["workflow"]["backup"] == {"failed": 2}
+    assert payload["workflow"]["dry_run"] == {"ok": 2}
+    assert payload["workflow"]["evaluate"] == {"ok": 2}
+    assert all("NCP_LAB_DEVICE_ALLOWLIST" in item["error"] for item in payload["results"])
+
+
+def test_excel_lab_cli_bulk_real_lab_execute_is_blocked(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    inventory = write_inventory(tmp_path / "inventory.xlsx")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/excel_lab.py",
+            str(inventory),
+            "execute-apply",
+            "--all",
+            "--credential",
+            "lab-admin",
+            "--operation",
+            "vlan_create",
+            "--vlan-id",
+            "123",
+            "--name",
+            "TEST",
+            "--real-lab",
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "Bulk --all real lab execution is intentionally disabled" in result.stderr
+
+
+def test_excel_lab_human_formatter_renders_device_table_without_internal_ids() -> None:
+    from scripts.excel_lab import _format_human_result
+
+    rendered = _format_human_result(
+        "list",
+        {
+            "devices": [
+                {
+                    "device_ip": "192.0.2.67",
+                    "label": "sw1",
+                    "vendor": "Cisco",
+                    "model": "Catalyst 2960",
+                    "family": "cisco_ios",
+                    "selected_transport": "netmiko",
+                    "backup_status": "missing",
+                    "apply_status": "candidate_gated",
+                    "lab_allowed": True,
+                    "internal_device_id": "excel-should-not-be-rendered",
+                }
+            ]
+        },
+    )
+
+    assert "Excel inventory devices" in rendered
+    assert "192.0.2.67" in rendered
+    assert "cisco_ios" in rendered
+    assert "excel-should-not-be-rendered" not in rendered
+
+
+def test_excel_lab_workflow_public_parameters_redact_secret_values() -> None:
+    from scripts.excel_lab import _public_parameters
+
+    safe = _public_parameters({"username": "admin", "password": "SHOULD_NOT_LEAK", "vlan_id": 123})
+
+    assert safe == {"password": "<redacted>", "username": "admin", "vlan_id": 123}
+
+
+def test_excel_lab_human_workflow_output_shows_profile_parameters() -> None:
+    from scripts.excel_lab import _format_human_result
+
+    rendered = _format_human_result(
+        "workflow",
+        {
+            "workflow": {
+                "profile": "profile.json",
+                "operation": "vlan_create",
+                "credential": "lab-admin",
+                "parameters": {"name": "TEST_VLAN", "vlan_id": 123},
+                "with_backup": False,
+                "device_count": 1,
+                "backup": {"skipped": 1},
+                "dry_run": {"ok": 1},
+                "evaluate": {"ok": 1},
+                "allowed_count": 0,
+                "real_apply_executed": False,
+                "report": {"markdown_path": "reports/workflow.md", "json_path": "reports/workflow.json"},
+            },
+            "results": [
+                {
+                    "device_ip": "192.0.2.67",
+                    "label": "sw1",
+                    "vendor": "Cisco",
+                    "model": "Catalyst 2960",
+                    "backup_status": "ok",
+                    "dry_run_status": "ok",
+                    "evaluate_status": "ok",
+                    "allowed": True,
+                    "command_hash": "abc123",
+                    "next_execute_command": "switchfleet inventory.xlsx execute-apply --device 192.0.2.67 --profile profile.json --simulation-hash abc123 --real-lab",
+                }
+            ],
+        },
+    )
+
+    assert "Parameters" in rendered
+    assert "name=TEST_VLAN" in rendered
+    assert "vlan_id=123" in rendered
+    assert "Next execute commands" in rendered
+    assert "execute-apply --device 192.0.2.67 --profile profile.json --simulation-hash abc123 --real-lab" in rendered
+
+
+def test_excel_lab_next_execute_command_preserves_state_dir(tmp_path: Path) -> None:
+    from argparse import Namespace
+    from scripts.excel_lab import _next_execute_command
+
+    inventory = write_inventory(
+        tmp_path / "inventory.xlsx",
+        [["Active", "sw1", "Catalyst 2960", "192.0.2.67", "Cisco", "Switch", "Lab", "NetOps"]],
+    )
+    device = load_excel_inventory(inventory)[0]
+    state_dir = tmp_path / "custom-state"
+    profile = tmp_path / "profile.json"
+    command = _next_execute_command(
+        Namespace(inventory_path=inventory, profile=profile, state_dir=state_dir),
+        device,
+        {"allowed": True, "command_hash": "abc123"},
+    )
+
+    assert command.startswith("switchfleet --state-dir ")
+    assert f"--state-dir {state_dir}" in command
+    assert f"{inventory} execute-apply" in command
+    assert "--device 192.0.2.67" in command
+    assert f"--profile {profile}" in command
+    assert "--simulation-hash abc123 --real-lab" in command
+
+
+def test_excel_lab_cli_human_flag_forces_operator_output_when_captured(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    inventory = write_inventory(
+        tmp_path / "inventory.xlsx",
+        [["Active", "sw1", "Catalyst 2960", "192.0.2.67", "Cisco", "Switch", "Lab", "NetOps"]],
+    )
+
+    result = subprocess.run(
+        [sys.executable, "scripts/excel_lab.py", "--human", str(inventory), "list"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Excel inventory devices" in result.stdout
+    assert "device_ip" in result.stdout
+    assert "192.0.2.67" in result.stdout
+    assert not result.stdout.lstrip().startswith("{")
+
+
 def test_excel_lab_cli_summary_and_check_runtime_show_real_inventory_status(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[2]
     inventory = write_inventory(
@@ -343,6 +1052,17 @@ def test_excel_lab_cli_required_workflow_reaches_fake_execute_without_db_or_ssh(
     inventory = write_inventory(tmp_path / "inventory.xlsx")
     device = load_excel_inventory(inventory)[0]
     state_dir = tmp_path / ".switchfleet_lab"
+    profile = tmp_path / "vlan-profile.json"
+    profile.write_text(
+        json.dumps(
+            {
+                "operation": "vlan_create",
+                "credential": "lab-admin",
+                "parameters": {"vlan_id": 123, "name": "TEST"},
+            }
+        ),
+        encoding="utf-8",
+    )
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
     env["NCP_SECRET_KEY"] = "excel-lab-secret-key"
@@ -430,14 +1150,8 @@ def test_excel_lab_cli_required_workflow_reaches_fake_execute_without_db_or_ssh(
             "execute-apply",
             "--device",
             device.ip_address,
-            "--credential",
-            "lab-admin",
-            "--operation",
-            "vlan_create",
-            "--vlan-id",
-            "123",
-            "--name",
-            "TEST",
+            "--profile",
+            str(profile),
             "--simulation-hash",
             command_hash,
         ]
@@ -621,9 +1335,15 @@ def test_local_working_version_checklist_is_linked_and_keeps_workflow_order() ->
     assert "docs/local-working-version-checklist.md" in readme
     assert "Use IP address as the operator-facing device selector" in readme
     assert "Internal generated IDs are implementation details" in readme
+    assert "--human" in readme
+    assert ".switchfleet_lab/reports/" in readme
+    assert "execute-apply --device 192.0.2.67 --profile examples/lab/vlan-profile.example.json" in readme
     assert "does not require PostgreSQL, Alembic, FastAPI startup, Redis, Docker, or database imports" in checklist
     assert "Use IP address as the operator-facing device selector" in checklist
     assert "Internal generated IDs are implementation details" in checklist
+    assert "--human" in checklist
+    assert ".switchfleet_lab/reports/" in checklist
+    assert "execute-apply --device 192.0.2.67 --profile examples/lab/vlan-profile.example.json" in checklist
     assert checklist.index("switchfleet inventory.xlsx doctor") < checklist.index("switchfleet inventory.xlsx summary")
     assert checklist.index("switchfleet inventory.xlsx summary") < checklist.index("switchfleet inventory.xlsx list")
     assert checklist.index("switchfleet inventory.xlsx add-credential") < checklist.index("switchfleet inventory.xlsx backup")

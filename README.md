@@ -71,9 +71,11 @@ switchfleet inventory.xlsx doctor
 switchfleet inventory.xlsx summary
 switchfleet inventory.xlsx list
 switchfleet inventory.xlsx check-runtime --device 192.0.2.67
+switchfleet inventory.xlsx check-runtime --all
 ```
 
 Use IP address as the operator-facing device selector. Internal generated IDs are implementation details and should not be used in normal CLI workflows.
+When run in an interactive terminal, `switchfleet` renders operator-friendly tables and sections. Use `--human` to force that view through wrappers or captured terminals, and `--json` for scripts, CI, and machine-readable output.
 
 For a checkout smoke test, use the included documentation-address lab sample:
 
@@ -100,6 +102,33 @@ switchfleet inventory.xlsx dry-run --device 192.0.2.67 --operation vlan_create -
 switchfleet inventory.xlsx evaluate-apply --device 192.0.2.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run>
 switchfleet inventory.xlsx certify --device 192.0.2.67 --capability vlan_create --credential lab-admin
 ```
+
+For read-only and planning stages, the same parameters can be applied across the Excel inventory with `--all`:
+
+```powershell
+switchfleet inventory.xlsx backup --all --credential lab-admin
+switchfleet inventory.xlsx dry-run --all --operation vlan_create --vlan-id 123 --name TEST_VLAN
+switchfleet inventory.xlsx evaluate-apply --all --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN
+switchfleet inventory.xlsx certify --all --capability vlan_create --credential lab-admin
+```
+
+You can also keep change parameters in a JSON profile and reuse it across the Excel inventory:
+
+```powershell
+switchfleet inventory.xlsx dry-run --all --profile examples/lab/vlan-profile.example.json
+switchfleet inventory.xlsx evaluate-apply --all --profile examples/lab/vlan-profile.example.json
+switchfleet inventory.xlsx execute-apply --device 192.0.2.67 --profile examples/lab/vlan-profile.example.json --simulation-hash <hash-from-dry-run> --real-lab
+```
+
+For one safe inventory-wide run, use `workflow`. Without `--with-backup` it does not open SSH; with `--with-backup` it performs read-only backup first:
+
+```powershell
+switchfleet inventory.xlsx workflow --profile examples/lab/vlan-profile.example.json
+switchfleet inventory.xlsx workflow --profile examples/lab/vlan-profile.example.json --with-backup
+```
+
+Bulk commands report per-device success or failure and continue processing the remaining Excel rows. Bulk real-lab execution is intentionally disabled; execute real changes per device after reviewing each backup, dry-run, evaluation, and certification record.
+`workflow` also writes a readable Markdown report and a JSON report under `.switchfleet_lab/reports/`.
 
 Certification is lab-only and scoped: config capabilities can be certified only for allowlisted devices with a usable credential reference, fresh sanitized backup, stored dry-run, and a matching recorded `evaluate-apply` result for the same device, credential, runtime profile, and command hash. The pre-certification evaluation may be blocked only by the missing lab-validation gate. Unsupported, ICMP, non-switch, QTECH, Eltex, and Bulat config apply remain blocked until explicit certified templates/policy exist.
 

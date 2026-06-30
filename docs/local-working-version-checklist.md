@@ -15,6 +15,7 @@ python scripts/excel_lab.py --help
 ```
 
 The `switchfleet` command and the source-checkout compatibility script should both start without database configuration.
+Interactive terminals show table/section output by default. Use `--human` to force that view through wrappers or captured terminals, and `--json` for machine-readable output.
 
 ## Example Inventory
 
@@ -25,6 +26,7 @@ switchfleet examples/lab/inventory.example.xlsx doctor
 switchfleet examples/lab/inventory.example.xlsx summary
 switchfleet examples/lab/inventory.example.xlsx list
 switchfleet examples/lab/inventory.example.xlsx check-runtime --device 192.0.2.30
+switchfleet examples/lab/inventory.example.xlsx check-runtime --all
 ```
 
 Expected properties:
@@ -61,6 +63,7 @@ switchfleet inventory.xlsx doctor
 switchfleet inventory.xlsx summary
 switchfleet inventory.xlsx list
 switchfleet inventory.xlsx check-runtime --device 192.0.2.67
+switchfleet inventory.xlsx check-runtime --all
 switchfleet inventory.xlsx add-credential --name lab-admin --username admin --password-prompt
 switchfleet inventory.xlsx backup --device 192.0.2.67 --credential lab-admin
 switchfleet inventory.xlsx dry-run --device 192.0.2.67 --operation vlan_create --vlan-id 123 --name TEST_VLAN
@@ -68,6 +71,33 @@ switchfleet inventory.xlsx evaluate-apply --device 192.0.2.67 --credential lab-a
 switchfleet inventory.xlsx certify --device 192.0.2.67 --capability vlan_create --credential lab-admin
 switchfleet inventory.xlsx execute-apply --device 192.0.2.67 --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN --simulation-hash <hash-from-dry-run> --real-lab
 ```
+
+For inventory-wide read-only and planning stages, use `--all`:
+
+```powershell
+switchfleet inventory.xlsx backup --all --credential lab-admin
+switchfleet inventory.xlsx dry-run --all --operation vlan_create --vlan-id 123 --name TEST_VLAN
+switchfleet inventory.xlsx evaluate-apply --all --credential lab-admin --operation vlan_create --vlan-id 123 --name TEST_VLAN
+switchfleet inventory.xlsx certify --all --capability vlan_create --credential lab-admin
+```
+
+The same parameters can be stored in a JSON profile:
+
+```powershell
+switchfleet inventory.xlsx dry-run --all --profile examples/lab/vlan-profile.example.json
+switchfleet inventory.xlsx evaluate-apply --all --profile examples/lab/vlan-profile.example.json
+switchfleet inventory.xlsx execute-apply --device 192.0.2.67 --profile examples/lab/vlan-profile.example.json --simulation-hash <hash-from-dry-run> --real-lab
+```
+
+For one safe inventory-wide workflow:
+
+```powershell
+switchfleet inventory.xlsx workflow --profile examples/lab/vlan-profile.example.json
+switchfleet inventory.xlsx workflow --profile examples/lab/vlan-profile.example.json --with-backup
+```
+
+Bulk commands continue after per-device failures and report status for each IP. Bulk real-lab execution is intentionally disabled; execute real changes per device after reviewing its backup, dry-run hash, gate evaluation, and certification state.
+`workflow` also writes a readable Markdown report and a JSON report under `.switchfleet_lab/reports/`.
 
 ## Local State
 
