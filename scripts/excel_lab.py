@@ -14,6 +14,7 @@ import importlib.util
 import json
 import os
 import sys
+from copy import copy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,7 @@ from app.services.excel_lab_runtime import ExcelLabApplyExecutor, ExcelLabBackup
 from app.services.excel_lab_safety import ExcelLabSafetyRequest, ExcelLabSafetyService
 from app.services.file_credential_vault import FileCredentialVault
 from app.services.file_lab_state import FileLabState
+from app.services.report_sanitizer import sanitize_report_metadata
 from app.services.vendor_command_templates import VendorCommandTemplateService, command_hash, private_command_hash
 
 
@@ -37,7 +39,9 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="switchfleet", description="Excel-first SwitchFleet local admin CLI.")
     parser.add_argument("--state-dir", default=".switchfleet_lab")
     parser.add_argument("--debug", action="store_true")
-    parser.add_argument("--json", action="store_true")
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument("--json", action="store_true", help="force machine-readable JSON output")
+    output_group.add_argument("--human", action="store_true", help="force operator-friendly table/section output")
     parser.add_argument("inventory_path", type=Path, nargs="?")
     sub = parser.add_subparsers(dest="command")
 
@@ -50,8 +54,8 @@ def main(argv: list[str] | None = None) -> None:
     list_parser.add_argument("--allowlisted-only", action="store_true")
     list_parser.add_argument("--limit", type=int)
 
-    device_parser = sub.add_parser("check-runtime", help="Show runtime decision for one Excel device")
-    _device_selector_arg(device_parser)
+    device_parser = sub.add_parser("check-runtime", help="Show runtime decision for one Excel device or all Excel devices")
+    _target_selector_arg(device_parser)
 
     add_credential = sub.add_parser("add-credential", help="Create encrypted file credential ref")
     add_credential.add_argument("--name", required=True)
@@ -61,7 +65,7 @@ def main(argv: list[str] | None = None) -> None:
     add_credential.add_argument("--purpose", default="lab_apply")
 
     backup = sub.add_parser("backup", help="Run read-only lab backup for an allowlisted Excel device")
-    _device_selector_arg(backup)
+    _target_selector_arg(backup)
     backup.add_argument("--credential", required=True)
 
     dry_run = sub.add_parser("dry-run", help="Render redacted command plan and store dry-run hash")
@@ -71,11 +75,19 @@ def main(argv: list[str] | None = None) -> None:
     _apply_args(evaluate)
 
     certify = sub.add_parser("certify", help="Record lab-only capability certification evidence")
-    _device_selector_arg(certify)
+    _target_selector_arg(certify)
     certify.add_argument("--capability", required=True)
     certify.add_argument("--credential", required=True)
 
     sub.add_parser("certification-report", help="Show lab certification records")
+
+    workflow = sub.add_parser("workflow", help="Run profile-driven safe workflow for all Excel devices")
+    workflow.add_argument("--profile", type=Path, required=True, help="JSON parameter profile with operation and credential")
+    workflow.add_argument(
+        "--with-backup",
+        action="store_true",
+        help="include read-only backup before dry-run/evaluate; requires allowlist and credential",
+    )
 
     execute = sub.add_parser("execute-apply", help="Execute fake or real lab apply after file-mode gates pass")
     _apply_args(execute)
@@ -94,7 +106,12 @@ def main(argv: list[str] | None = None) -> None:
         if args.debug:
             raise
         raise SystemExit(str(exc)) from exc
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    elif args.human or sys.stdout.isatty():
+        print(_format_human_result(args.command, result))
+    else:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 def _dispatch(args: argparse.Namespace) -> dict[str, Any]:
@@ -107,6 +124,8 @@ def _dispatch(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "list":
         return {"devices": _list_devices(devices, args)}
     if args.command == "check-runtime":
+        if args.all:
+            return {"devices": [_check_runtime(state, device, args, ExcelDeviceResolution(device, "all")) for device in devices]}
         resolution = _resolve_device(devices, args)
         return _with_selector_warning(_check_runtime(state, resolution.device, args, resolution), resolution)
     if args.command == "add-credential":
@@ -115,97 +134,61 @@ def _dispatch(args: argparse.Namespace) -> dict[str, Any]:
         metadata = vault.create_or_update(name=args.name, username=args.username, secret=secret, purpose=args.purpose)
         return {"credential": metadata.to_safe_dict()}
     if args.command == "backup":
+        if args.all:
+            return {"results": [_run_backup_for_device(state, device, args) for device in devices]}
         resolution = _resolve_device(devices, args)
-        device = resolution.device
-        result = ExcelLabBackupRunner(state, _vault(state)).backup_device(device, credential_ref=args.credential)
-        return _with_selector_warning({"backup": result.to_dict()}, resolution)
+        result = _run_backup_for_device(state, resolution.device, args)
+        if result["status"] != "ok":
+            raise SystemExit(result["error"])
+        return _with_selector_warning({"backup": result["backup"]}, resolution)
     if args.command == "dry-run":
+        if args.all:
+            return {"results": [_run_dry_run_for_device(state, device, args) for device in devices]}
         resolution = _resolve_device(devices, args)
-        device = resolution.device
-        operation = VendorOperation(args.operation)
-        parameters = _command_parameters(args)
-        commands = _render(device, operation, parameters)
-        hash_value = command_hash(commands)
-        state.save_dry_run(
-            {
-                "device_id": device.id,
-                "internal_device_id": device.id,
-                "device_ip": device.ip_address,
-                "device_label": device.label,
-                "hostname": device.hostname,
-                "vendor": device.vendor,
-                "model": device.model,
-                "operation": operation.value,
-                "command_hash": hash_value,
-                "private_command_hash": _private_command_hash(commands),
-                "commands": [command.to_safe_dict() for command in commands],
-            }
-        )
-        return _with_selector_warning(
-            {
-                "device_ip": device.ip_address,
-                "device": _device_dict(device, debug=args.debug),
-                "operation": operation.value,
-                "commands": [command.to_safe_dict() for command in commands],
-                "command_hash": hash_value,
-            },
-            resolution,
-        )
+        result = _run_dry_run_for_device(state, resolution.device, args)
+        if result["status"] != "ok":
+            raise SystemExit(result["error"])
+        return _with_selector_warning(result["dry_run"], resolution)
     if args.command == "evaluate-apply":
+        if args.all:
+            return {"results": [_run_evaluate_for_device(state, device, args) for device in devices]}
         resolution = _resolve_device(devices, args)
-        decision, _transport_decision = _evaluate(state, resolution.device, args, require_real_apply=False, record_evaluation=True)
+        decision, _transport_decision = _evaluate_with_latest_hash(state, resolution.device, args, require_real_apply=False, record_evaluation=True)
         return _with_selector_warning(
             _with_device_context(_public_safety_decision(decision.to_dict(), resolution.device, debug=args.debug), resolution.device, args),
             resolution,
         )
     if args.command == "certify":
+        if args.all:
+            return {"results": [_run_certify_for_device(state, device, args) for device in devices]}
         resolution = _resolve_device(devices, args)
         device = resolution.device
-        capability = _certification_capability(args.capability)
-        _assert_certification_allowed(state, device, capability, args.credential)
-        decision = _decision_for_device(device)
-        record = state.save_lab_validation(
-            {
-                "device_id": device.id,
-                "internal_device_id": device.id,
-                "device_ip": device.ip_address,
-                "device_label": device.label,
-                "hostname": device.hostname,
-                "vendor": device.vendor,
-                "model": device.model,
-                "driver_name": device.driver_name,
-                "platform": device.platform,
-                "family": decision.family.value,
-                "selected_transport": decision.selected_transport.value,
-                "capability": capability.value,
-                "production_certified": False,
-                "evidence": "Excel lab operator certification record; validate on real firmware before production use.",
-            }
-        )
-        state.append_audit(
-            action="excel_lab.certified",
-            actor="excel-lab",
-            object_type="lab_validation",
-            object_id=record["id"],
-            metadata=_device_metadata(device) | {"capability": capability.value},
-        )
+        result = _run_certify_for_device(state, device, args)
+        if result["status"] != "ok":
+            raise SystemExit(result["error"])
         return _with_selector_warning(
-            _with_device_context({"certification": _public_state_record(record, devices, debug=args.debug)}, device, args),
+            _with_device_context({"certification": result["certification"]}, device, args),
             resolution,
         )
     if args.command == "certification-report":
         return {"certifications": [_public_state_record(record, devices, debug=args.debug) for record in state.read_lab_validations()]}
+    if args.command == "workflow":
+        return _run_profile_workflow(state, devices, args)
     if args.command == "execute-apply":
+        if args.all:
+            if args.real_lab:
+                raise SystemExit("Bulk --all real lab execution is intentionally disabled; execute real changes per device.")
+            return {"results": [_run_execute_for_device(state, device, args) for device in devices]}
         if args.real_lab and not args.simulation_hash:
             raise SystemExit("Real lab execution requires --simulation-hash from a prior dry-run")
         resolution = _resolve_device(devices, args)
         device = resolution.device
-        decision, transport_decision = _evaluate(state, device, args, require_real_apply=args.real_lab)
+        decision, transport_decision = _evaluate_with_latest_hash(state, device, args, require_real_apply=args.real_lab)
         result = ExcelLabApplyExecutor(state, _vault(state)).execute(
             device=device,
             safety_decision=decision,
             transport_decision=transport_decision,
-            credential_ref=args.credential,
+            credential_ref=_credential_ref(args),
             real_lab=args.real_lab,
         )
         return _with_selector_warning(
@@ -222,8 +205,9 @@ def _dispatch(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _operation_args(parser: argparse.ArgumentParser) -> None:
-    _device_selector_arg(parser)
-    parser.add_argument("--operation", choices=[item.value for item in VendorOperation], required=True)
+    _target_selector_arg(parser)
+    parser.add_argument("--profile", type=Path, help="JSON parameter profile with operation and parameters")
+    parser.add_argument("--operation", choices=[item.value for item in VendorOperation])
     parser.add_argument("--vlan-id", type=int)
     parser.add_argument("--name")
     parser.add_argument("--username")
@@ -235,11 +219,15 @@ def _operation_args(parser: argparse.ArgumentParser) -> None:
 
 def _apply_args(parser: argparse.ArgumentParser) -> None:
     _operation_args(parser)
-    parser.add_argument("--credential", required=True)
+    parser.add_argument("--credential")
     parser.add_argument("--simulation-hash")
 
 
 def _device_selector_arg(parser: argparse.ArgumentParser) -> None:
+    _target_selector_arg(parser, allow_all=False)
+
+
+def _target_selector_arg(parser: argparse.ArgumentParser, *, allow_all: bool = True) -> None:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--device",
@@ -248,6 +236,8 @@ def _device_selector_arg(parser: argparse.ArgumentParser) -> None:
         help="device IP address; internal excel-* IDs are deprecated for CLI use",
     )
     group.add_argument("--ip", dest="device", metavar="IP_ADDRESS", help="device IP address")
+    if allow_all:
+        group.add_argument("--all", action="store_true", help="run this command for all Excel inventory devices")
 
 
 def _doctor(args: argparse.Namespace, state: FileLabState, devices: list[ExcelInventoryDevice]) -> dict[str, Any]:
@@ -348,14 +338,14 @@ def _evaluate(
     require_real_apply: bool,
     record_evaluation: bool = False,
 ):
-    operation = VendorOperation(args.operation)
+    operation = _operation_value(args)
     parameters = _command_parameters(args)
     service = ExcelLabSafetyService(state, _vault(state), settings=get_settings())
     decision, transport_decision = service.evaluate(
         ExcelLabSafetyRequest(
             device=device,
             operation=operation,
-            credential_ref=args.credential,
+            credential_ref=_credential_ref(args),
             command_parameters=parameters,
             simulation_hash=args.simulation_hash,
             require_real_apply=require_real_apply,
@@ -371,7 +361,7 @@ def _evaluate(
                 "device_label": device.label,
                 "hostname": device.hostname,
                 "operation": operation.value,
-                "credential_ref": args.credential,
+                "credential_ref": _credential_ref(args),
                 "simulation_hash": args.simulation_hash,
                 "command_hash": decision.command_hash,
                 "private_command_hash": (dry_run or {}).get("private_command_hash"),
@@ -390,6 +380,375 @@ def _evaluate(
             }
         )
     return decision, transport_decision
+
+
+def _evaluate_with_latest_hash(
+    state: FileLabState,
+    device: ExcelInventoryDevice,
+    args: argparse.Namespace,
+    *,
+    require_real_apply: bool,
+    record_evaluation: bool = False,
+):
+    prepared = _args_with_latest_simulation_hash(state, device, args)
+    return _evaluate(state, device, prepared, require_real_apply=require_real_apply, record_evaluation=record_evaluation)
+
+
+def _args_with_latest_simulation_hash(state: FileLabState, device: ExcelInventoryDevice, args: argparse.Namespace) -> argparse.Namespace:
+    if getattr(args, "simulation_hash", None):
+        return args
+    operation = _operation_value(args)
+    dry_run = _latest_stored_dry_run(state, device, operation)
+    if not dry_run:
+        return args
+    prepared = copy(args)
+    prepared.simulation_hash = dry_run.get("command_hash")
+    return prepared
+
+
+def _run_backup_for_device(state: FileLabState, device: ExcelInventoryDevice, args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        result = ExcelLabBackupRunner(state, _vault(state)).backup_device(device, credential_ref=_credential_ref(args))
+        return {
+            "status": "ok",
+            "device_ip": device.ip_address,
+            "hostname": device.hostname,
+            "label": device.label,
+            "vendor": device.vendor,
+            "model": device.model,
+            "backup": result.to_dict(),
+        }
+    except (Exception, SystemExit) as exc:
+        return _failed_device_result(device, exc)
+
+
+def _run_dry_run_for_device(state: FileLabState, device: ExcelInventoryDevice, args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        operation = _operation_value(args)
+        parameters = _command_parameters(args)
+        commands = _render(device, operation, parameters)
+        hash_value = command_hash(commands)
+        state.save_dry_run(
+            {
+                "device_id": device.id,
+                "internal_device_id": device.id,
+                "device_ip": device.ip_address,
+                "device_label": device.label,
+                "hostname": device.hostname,
+                "vendor": device.vendor,
+                "model": device.model,
+                "operation": operation.value,
+                "command_hash": hash_value,
+                "private_command_hash": _private_command_hash(commands),
+                "commands": [command.to_safe_dict() for command in commands],
+            }
+        )
+        dry_run = {
+            "device_ip": device.ip_address,
+            "device": _device_dict(device, debug=args.debug),
+            "operation": operation.value,
+            "commands": [command.to_safe_dict() for command in commands],
+            "command_hash": hash_value,
+        }
+        return {
+            "status": "ok",
+            "device_ip": device.ip_address,
+            "hostname": device.hostname,
+            "label": device.label,
+            "vendor": device.vendor,
+            "model": device.model,
+            "operation": operation.value,
+            "command_hash": hash_value,
+            "dry_run": dry_run,
+        }
+    except (Exception, SystemExit) as exc:
+        return _failed_device_result(device, exc)
+
+
+def _run_evaluate_for_device(state: FileLabState, device: ExcelInventoryDevice, args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        prepared = _args_with_latest_simulation_hash(state, device, args)
+        decision, _transport_decision = _evaluate(state, device, prepared, require_real_apply=False, record_evaluation=True)
+        payload = _public_safety_decision(decision.to_dict(), device, debug=args.debug)
+        return {
+            "status": "ok",
+            "device_ip": device.ip_address,
+            "hostname": device.hostname,
+            "label": device.label,
+            "vendor": device.vendor,
+            "model": device.model,
+            "operation": _operation_value(args).value,
+            "allowed": decision.allowed,
+            "command_hash": decision.command_hash,
+            "denied_gates": decision.denied_gates,
+            "reasons": decision.reasons,
+            "decision": _with_device_context(payload, device, args),
+        }
+    except (Exception, SystemExit) as exc:
+        return _failed_device_result(device, exc)
+
+
+def _run_certify_for_device(state: FileLabState, device: ExcelInventoryDevice, args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        capability = _certification_capability(args.capability)
+        _assert_certification_allowed(state, device, capability, _credential_ref(args))
+        decision = _decision_for_device(device)
+        record = state.save_lab_validation(
+            {
+                "device_id": device.id,
+                "internal_device_id": device.id,
+                "device_ip": device.ip_address,
+                "device_label": device.label,
+                "hostname": device.hostname,
+                "vendor": device.vendor,
+                "model": device.model,
+                "driver_name": device.driver_name,
+                "platform": device.platform,
+                "family": decision.family.value,
+                "selected_transport": decision.selected_transport.value,
+                "capability": capability.value,
+                "production_certified": False,
+                "evidence": "Excel lab operator certification record; validate on real firmware before production use.",
+            }
+        )
+        state.append_audit(
+            action="excel_lab.certified",
+            actor="excel-lab",
+            object_type="lab_validation",
+            object_id=record["id"],
+            metadata=_device_metadata(device) | {"capability": capability.value},
+        )
+        certification = _public_state_record(record, [device], debug=args.debug)
+        return {
+            "status": "ok",
+            "device_ip": device.ip_address,
+            "hostname": device.hostname,
+            "label": device.label,
+            "vendor": device.vendor,
+            "model": device.model,
+            "capability": capability.value,
+            "certification": certification,
+        }
+    except (Exception, SystemExit) as exc:
+        return _failed_device_result(device, exc)
+
+
+def _run_execute_for_device(state: FileLabState, device: ExcelInventoryDevice, args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        prepared = _args_with_latest_simulation_hash(state, device, args)
+        decision, transport_decision = _evaluate(state, device, prepared, require_real_apply=False)
+        result = ExcelLabApplyExecutor(state, _vault(state)).execute(
+            device=device,
+            safety_decision=decision,
+            transport_decision=transport_decision,
+            credential_ref=_credential_ref(args),
+            real_lab=False,
+        )
+        return {
+            "status": "ok",
+            "device_ip": device.ip_address,
+            "hostname": device.hostname,
+            "label": device.label,
+            "vendor": device.vendor,
+            "model": device.model,
+            "allowed": decision.allowed,
+            "executed": result.executed,
+            "execution": result.to_dict(),
+        }
+    except (Exception, SystemExit) as exc:
+        return _failed_device_result(device, exc)
+
+
+def _run_profile_workflow(state: FileLabState, devices: list[ExcelInventoryDevice], args: argparse.Namespace) -> dict[str, Any]:
+    _profile_payload(args)
+    profile_operation = _operation_value(args).value
+    profile_credential = _credential_ref(args)
+    profile_parameters = _command_parameters(args)
+    backup_results = [_run_backup_for_device(state, device, args) for device in devices] if args.with_backup else []
+    dry_run_results = [_run_dry_run_for_device(state, device, args) for device in devices]
+    evaluate_results = [_run_evaluate_for_device(state, device, args) for device in devices]
+    rows: list[dict[str, Any]] = []
+    backups_by_ip = {item.get("device_ip"): item for item in backup_results}
+    dry_runs_by_ip = {item.get("device_ip"): item for item in dry_run_results}
+    evaluations_by_ip = {item.get("device_ip"): item for item in evaluate_results}
+    for device in devices:
+        backup = backups_by_ip.get(device.ip_address)
+        dry_run = dry_runs_by_ip.get(device.ip_address)
+        evaluation = evaluations_by_ip.get(device.ip_address)
+        rows.append(
+            {
+                "device_ip": device.ip_address,
+                "hostname": device.hostname,
+                "label": device.label,
+                "vendor": device.vendor,
+                "model": device.model,
+                "backup_status": (backup or {}).get("status") if args.with_backup else "skipped",
+                "dry_run_status": (dry_run or {}).get("status"),
+                "evaluate_status": (evaluation or {}).get("status"),
+                "allowed": (evaluation or {}).get("allowed", False),
+                "command_hash": (evaluation or {}).get("command_hash") or (dry_run or {}).get("command_hash"),
+                "error": _first_error(backup, dry_run, evaluation),
+                "denied_gates": (evaluation or {}).get("denied_gates", []),
+                "next_execute_command": _next_execute_command(args, device, evaluation),
+            }
+        )
+    workflow_result = {
+        "workflow": {
+            "profile": str(args.profile),
+            "operation": profile_operation,
+            "credential": profile_credential,
+            "credential_ref": profile_credential,
+            "parameters": _public_parameters(profile_parameters),
+            "with_backup": bool(args.with_backup),
+            "device_count": len(devices),
+            "backup": _stage_counts(backup_results) if args.with_backup else {"skipped": len(devices)},
+            "dry_run": _stage_counts(dry_run_results),
+            "evaluate": _stage_counts(evaluate_results),
+            "allowed_count": sum(1 for item in evaluate_results if item.get("allowed") is True),
+            "real_apply_executed": False,
+        },
+        "results": rows,
+    }
+    report = state.save_report("workflow", workflow_result, _workflow_markdown_report(workflow_result))
+    workflow_result["workflow"]["report"] = report
+    return workflow_result
+
+
+def _first_error(*items: dict[str, Any] | None) -> str:
+    for item in items:
+        if item and item.get("error"):
+            return str(item["error"])
+    return ""
+
+
+def _stage_counts(results: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in results:
+        status = str(item.get("status") or "unknown")
+        counts[status] = counts.get(status, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _public_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+    return sanitize_report_metadata(parameters)
+
+
+def _next_execute_command(args: argparse.Namespace, device: ExcelInventoryDevice, evaluation: dict[str, Any] | None) -> str:
+    if not evaluation or evaluation.get("allowed") is not True:
+        return ""
+    command_hash = evaluation.get("command_hash")
+    if not command_hash:
+        return ""
+    parts = ["switchfleet"]
+    state_dir = getattr(args, "state_dir", None)
+    if state_dir is not None:
+        parts.extend(["--state-dir", _shell_arg(str(state_dir))])
+    parts.extend(
+        [
+            _shell_arg(str(args.inventory_path)),
+            "execute-apply",
+            "--device",
+            _shell_arg(device.ip_address),
+            "--profile",
+            _shell_arg(str(args.profile)),
+            "--simulation-hash",
+            _shell_arg(str(command_hash)),
+            "--real-lab",
+        ]
+    )
+    return " ".join(parts)
+
+
+def _workflow_markdown_report(workflow_result: dict[str, Any]) -> str:
+    workflow = workflow_result.get("workflow") or {}
+    rows = workflow_result.get("results") or []
+    lines = [
+        "# SwitchFleet Local Workflow Report",
+        "",
+        f"- Profile: `{workflow.get('profile')}`",
+        f"- Operation: `{workflow.get('operation')}`",
+        f"- Credential ref: `{workflow.get('credential_ref') or workflow.get('credential')}`",
+        f"- Parameters: `{_inline_counts(workflow.get('parameters'))}`",
+        f"- Device count: {workflow.get('device_count')}",
+        f"- With backup: {_yes_no(bool(workflow.get('with_backup')))}",
+        f"- Allowed count: {workflow.get('allowed_count')}",
+        f"- Real apply executed: {_yes_no(bool(workflow.get('real_apply_executed')))}",
+        "",
+        "## Stage Counts",
+        "",
+        f"- Backup: {_inline_counts(workflow.get('backup'))}",
+        f"- Dry-run: {_inline_counts(workflow.get('dry_run'))}",
+        f"- Evaluate: {_inline_counts(workflow.get('evaluate'))}",
+        "",
+        "## Devices",
+        "",
+        "| IP | Label | Vendor | Model | Backup | Dry-run | Evaluate | Allowed | Command Hash | Next Execute Command | Error |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for row in rows:
+        lines.append(
+            "| "
+            + " | ".join(
+                _markdown_cell(row.get(key))
+                for key in (
+                    "device_ip",
+                    "label",
+                    "vendor",
+                    "model",
+                    "backup_status",
+                    "dry_run_status",
+                    "evaluate_status",
+                    "allowed",
+                    "command_hash",
+                    "next_execute_command",
+                    "error",
+                )
+            )
+            + " |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Notes",
+            "",
+            "- This report is generated from local Excel-first workflow state.",
+            "- Production apply remains disabled.",
+            "- Bulk real-lab execution is intentionally disabled; execute real changes per device after review.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def _inline_counts(value: Any) -> str:
+    if not isinstance(value, dict) or not value:
+        return "none"
+    return ", ".join(f"{key}={count}" for key, count in value.items())
+
+
+def _markdown_cell(value: Any) -> str:
+    text = _table_value(value)
+    return text.replace("|", "\\|")
+
+
+def _shell_arg(value: str) -> str:
+    if not value:
+        return '""'
+    safe = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-/:\\")
+    if all(char in safe for char in value):
+        return value
+    return '"' + value.replace('"', '\\"') + '"'
+
+
+def _failed_device_result(device: ExcelInventoryDevice, exc: BaseException) -> dict[str, Any]:
+    return {
+        "status": "failed",
+        "device_ip": device.ip_address,
+        "hostname": device.hostname,
+        "label": device.label,
+        "vendor": device.vendor,
+        "model": device.model,
+        "error": str(exc),
+    }
 
 
 def _render(device: ExcelInventoryDevice, operation: VendorOperation, parameters: dict[str, Any]):
@@ -530,14 +889,67 @@ def _apply_status(decision: Any, apply_support_level: str) -> dict[str, Any]:
 
 
 def _command_parameters(args: argparse.Namespace) -> dict[str, Any]:
-    operation = VendorOperation(str(args.operation))
+    profile = _profile_payload(args)
+    profile_parameters = profile.get("parameters") if isinstance(profile.get("parameters"), dict) else {}
+    operation = _operation_value(args)
     if operation == VendorOperation.vlan_create:
-        return {"vlan_id": args.vlan_id, "name": args.name}
+        return {
+            "vlan_id": _arg_or_profile(getattr(args, "vlan_id", None), profile_parameters, "vlan_id"),
+            "name": _arg_or_profile(getattr(args, "name", None), profile_parameters, "name"),
+        }
     if operation == VendorOperation.password_change:
-        return {"username": args.username, "password": _read_new_password(args), "level": args.level}
+        return {
+            "username": _arg_or_profile(getattr(args, "username", None), profile_parameters, "username"),
+            "password": _read_new_password(args),
+            "level": _arg_or_profile(getattr(args, "level", None), profile_parameters, "level"),
+        }
     if operation == VendorOperation.vlan_assign_port:
-        return {"interface": args.interface, "vlan_id": args.vlan_id}
+        return {
+            "interface": _arg_or_profile(getattr(args, "interface", None), profile_parameters, "interface"),
+            "vlan_id": _arg_or_profile(getattr(args, "vlan_id", None), profile_parameters, "vlan_id"),
+        }
     return {}
+
+
+def _operation_value(args: argparse.Namespace) -> VendorOperation:
+    profile = _profile_payload(args)
+    raw = getattr(args, "operation", None) or profile.get("operation")
+    if not raw:
+        raise SystemExit("Use --operation or provide operation in --profile")
+    return VendorOperation(str(raw))
+
+
+def _credential_ref(args: argparse.Namespace) -> str:
+    profile = _profile_payload(args)
+    raw = getattr(args, "credential", None) or profile.get("credential") or profile.get("credential_ref")
+    if not raw:
+        raise SystemExit("Use --credential or provide credential in --profile")
+    return str(raw)
+
+
+def _profile_payload(args: argparse.Namespace) -> dict[str, Any]:
+    cached = getattr(args, "_profile_payload", None)
+    if isinstance(cached, dict):
+        return cached
+    profile_path = getattr(args, "profile", None)
+    if profile_path is None:
+        args._profile_payload = {}
+        return args._profile_payload
+    path = Path(profile_path)
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise SystemExit(f"Unable to read parameter profile {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Parameter profile {path} is not valid JSON: {exc}") from exc
+    if not isinstance(loaded, dict):
+        raise SystemExit(f"Parameter profile {path} must contain a JSON object")
+    args._profile_payload = loaded
+    return loaded
+
+
+def _arg_or_profile(value: Any, profile_parameters: dict[str, Any], key: str) -> Any:
+    return value if value is not None else profile_parameters.get(key)
 
 
 def _certification_capability(value: str) -> VendorOperation:
@@ -805,6 +1217,343 @@ def _device_dict(device: ExcelInventoryDevice, *, debug: bool = False) -> dict[s
     if debug:
         data["internal_device_id"] = device.id
     return data
+
+
+def _format_human_result(command: str, result: dict[str, Any]) -> str:
+    if command == "doctor":
+        return _format_key_values(
+            "SwitchFleet Local doctor",
+            {
+                "Excel readable": result.get("excel_readable"),
+                "Devices": result.get("device_count"),
+                "State dir": result.get("state_dir"),
+                "Secret key": _yes_no(bool(result.get("secret_key_configured"))),
+                "Allowlist": _yes_no(bool(result.get("lab_device_allowlist_configured"))),
+                "Database required": _yes_no(bool(result.get("database_required"))),
+                "Alembic required": _yes_no(bool(result.get("alembic_required"))),
+                "Netmiko": _available(result.get("netmiko_available")),
+                "Paramiko": _available(result.get("paramiko_available")),
+                "Production apply": _enabled_disabled(result.get("production_apply_enabled")),
+            },
+        )
+    if command == "summary":
+        return "\n\n".join(
+            [
+                _format_key_values(
+                    "SwitchFleet Local summary",
+                    {
+                        "Devices": result.get("device_count"),
+                        "Allowlisted": result.get("allowlisted_count"),
+                        "Unsupported": result.get("unsupported_count"),
+                        "Blocked": result.get("blocked_count"),
+                        "Candidates": result.get("candidate_count"),
+                        "Production apply": _enabled_disabled(result.get("production_apply_enabled")),
+                    },
+                ),
+                _format_counts("Vendors", result.get("vendors")),
+                _format_counts("Families", result.get("families")),
+                _format_counts("Transports", result.get("transports")),
+                _format_counts("Backup status", result.get("backup_statuses")),
+                _format_counts("Apply status", result.get("apply_statuses")),
+            ]
+        )
+    if command == "list":
+        return _format_device_table(result.get("devices") or [])
+    if command == "check-runtime":
+        if "devices" in result:
+            return _format_runtime_table(result["devices"])
+        return _format_runtime_details(result)
+    if command in {"backup", "dry-run", "evaluate-apply", "certify", "execute-apply"} and "results" in result:
+        return _format_bulk_results(command, result["results"])
+    if command == "workflow":
+        workflow = result.get("workflow") or {}
+        report = workflow.get("report") or {}
+        return "\n\n".join(
+            [
+                _format_key_values(
+                    "Profile workflow",
+                    {
+                        "Profile": workflow.get("profile"),
+                        "Operation": workflow.get("operation"),
+                        "Credential": workflow.get("credential_ref") or workflow.get("credential"),
+                        "Parameters": _inline_counts(workflow.get("parameters")),
+                        "Devices": workflow.get("device_count"),
+                        "With backup": _yes_no(bool(workflow.get("with_backup"))),
+                        "Allowed": workflow.get("allowed_count"),
+                        "Real apply executed": _yes_no(bool(workflow.get("real_apply_executed"))),
+                        "Markdown report": report.get("markdown_path", ""),
+                        "JSON report": report.get("json_path", ""),
+                    },
+                ),
+                _format_counts("Backup stage", workflow.get("backup")),
+                _format_counts("Dry-run stage", workflow.get("dry_run")),
+                _format_counts("Evaluate stage", workflow.get("evaluate")),
+                _format_workflow_results(result.get("results") or []),
+                _format_next_execute_commands(result.get("results") or []),
+            ]
+        )
+    if command == "backup" and "backup" in result:
+        backup = result["backup"]
+        return _format_key_values(
+            "Backup created",
+            {
+                "Device IP": backup.get("device_ip"),
+                "Hostname": backup.get("hostname"),
+                "Label": backup.get("label"),
+                "Vendor": backup.get("vendor"),
+                "Model": backup.get("model"),
+                "Backup ID": backup.get("backup_id"),
+                "Transport": backup.get("transport_kind"),
+                "Config hash": backup.get("config_hash"),
+            },
+        )
+    if command == "dry-run" and "commands" in result:
+        commands = result.get("commands") or []
+        command_lines = [f"  {index}. {item.get('command')}" for index, item in enumerate(commands, start=1)]
+        return "\n".join(
+            [
+                _format_key_values(
+                    "Dry-run command plan",
+                    {
+                        "Device IP": result.get("device_ip"),
+                        "Operation": result.get("operation"),
+                        "Command hash": result.get("command_hash"),
+                    },
+                ),
+                "Commands:",
+                *(command_lines or ["  (none)"]),
+            ]
+        )
+    if command == "evaluate-apply":
+        return "\n".join(
+            [
+                _format_key_values(
+                    "Apply gate evaluation",
+                    {
+                        "Device IP": result.get("device_ip"),
+                        "Allowed": _yes_no(bool(result.get("allowed"))),
+                        "Driver family": result.get("driver_family"),
+                        "Transport": result.get("selected_transport"),
+                        "Command hash": result.get("command_hash"),
+                        "Production allowed": _yes_no(bool(result.get("production_allowed"))),
+                    },
+                ),
+                _format_list("Denied gates", result.get("denied_gates")),
+                _format_list("Reasons", result.get("reasons")),
+                _format_list("Warnings", result.get("warnings")),
+            ]
+        )
+    if command == "certify" and "certification" in result:
+        certification = result["certification"]
+        return _format_key_values(
+            "Lab certification recorded",
+            {
+                "Device IP": result.get("device_ip"),
+                "Capability": certification.get("capability"),
+                "Family": certification.get("family"),
+                "Transport": certification.get("selected_transport"),
+                "Status": certification.get("status"),
+                "Production certified": _yes_no(bool(certification.get("production_certified"))),
+            },
+        )
+    if command == "execute-apply":
+        execution = result.get("execution") or {}
+        return _format_key_values(
+            "Apply execution result",
+            {
+                "Device IP": result.get("device_ip"),
+                "Executed": _yes_no(bool(execution.get("executed"))),
+                "Fake transport": _yes_no(bool(execution.get("fake_transport"))),
+                "Transport": execution.get("transport_kind"),
+                "Command count": execution.get("command_count"),
+                "Error": execution.get("error") or "",
+            },
+        )
+    if command == "certification-report":
+        rows = result.get("certifications") or []
+        return _table(
+            ["device_ip", "vendor", "model", "capability", "family", "selected_transport", "status"],
+            rows,
+            title="Lab certifications",
+        )
+    if command == "audit-tail":
+        rows = result.get("events") or []
+        return _table(["created_at", "action", "object_type", "object_id", "device_ip"], rows, title="Audit tail")
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+def _format_key_values(title: str, values: dict[str, Any]) -> str:
+    rows = [(key, "" if value is None else str(value)) for key, value in values.items()]
+    width = max((len(key) for key, _value in rows), default=0)
+    body = "\n".join(f"{key:<{width}} : {value}" for key, value in rows)
+    return f"{title}\n{'-' * len(title)}\n{body}"
+
+
+def _format_counts(title: str, values: Any) -> str:
+    if not isinstance(values, dict) or not values:
+        return f"{title}: none"
+    return _table(["name", "count"], [{"name": key, "count": value} for key, value in values.items()], title=title)
+
+
+def _format_device_table(devices: list[dict[str, Any]]) -> str:
+    return _table(
+        [
+            "device_ip",
+            "label",
+            "vendor",
+            "model",
+            "family",
+            "selected_transport",
+            "backup_status",
+            "apply_status",
+            "lab_allowed",
+        ],
+        devices,
+        title="Excel inventory devices",
+    )
+
+
+def _format_runtime_table(devices: list[dict[str, Any]]) -> str:
+    rows = [
+        {
+            "device_ip": item.get("device_ip"),
+            "label": item.get("label"),
+            "vendor": item.get("vendor"),
+            "model": item.get("model"),
+            "family": item.get("family"),
+            "transport": item.get("selected_transport") or item.get("transport"),
+            "backup": (item.get("backup_status") or {}).get("status"),
+            "apply": (item.get("apply_status") or {}).get("status"),
+        }
+        for item in devices
+    ]
+    return _table(["device_ip", "label", "vendor", "model", "family", "transport", "backup", "apply"], rows, title="Runtime decisions")
+
+
+def _format_runtime_details(result: dict[str, Any]) -> str:
+    return "\n".join(
+        [
+            _format_key_values(
+                "Runtime decision",
+                {
+                    "Selector": result.get("selector_used"),
+                    "Device IP": result.get("device_ip"),
+                    "Hostname": result.get("hostname"),
+                    "Label": result.get("label"),
+                    "Vendor": result.get("vendor"),
+                    "Model": result.get("model"),
+                    "Family": result.get("family"),
+                    "Driver": result.get("driver"),
+                    "Platform": result.get("platform"),
+                    "Transport": result.get("selected_transport"),
+                    "Backup": (result.get("backup_status") or {}).get("status"),
+                    "Apply": (result.get("apply_status") or {}).get("status"),
+                },
+            ),
+            _format_list("Reasons", result.get("reasons")),
+            _format_list("Warnings", result.get("warnings")),
+        ]
+    )
+
+
+def _format_bulk_results(command: str, results: list[dict[str, Any]]) -> str:
+    rows: list[dict[str, Any]] = []
+    for item in results:
+        rows.append(
+            {
+                "status": item.get("status"),
+                "device_ip": item.get("device_ip"),
+                "label": item.get("label"),
+                "vendor": item.get("vendor"),
+                "model": item.get("model"),
+                "operation": item.get("operation") or item.get("capability") or "",
+                "hash": item.get("command_hash") or (item.get("backup") or {}).get("config_hash") or "",
+                "allowed": item.get("allowed", ""),
+                "error": item.get("error", ""),
+            }
+        )
+    return _table(
+        ["status", "device_ip", "label", "vendor", "model", "operation", "hash", "allowed", "error"],
+        rows,
+        title=f"{command} results",
+    )
+
+
+def _format_workflow_results(results: list[dict[str, Any]]) -> str:
+    return _table(
+        [
+            "device_ip",
+            "label",
+            "vendor",
+            "model",
+            "backup_status",
+            "dry_run_status",
+            "evaluate_status",
+            "allowed",
+            "command_hash",
+            "error",
+        ],
+        results,
+        title="Workflow results",
+    )
+
+
+def _format_next_execute_commands(results: list[dict[str, Any]]) -> str:
+    commands = [str(item.get("next_execute_command")) for item in results if item.get("next_execute_command")]
+    if not commands:
+        return "Next execute commands: none"
+    lines = ["Next execute commands", "---------------------"]
+    lines.extend(f"  {index}. {command}" for index, command in enumerate(commands, start=1))
+    return "\n".join(lines)
+
+
+def _format_list(title: str, values: Any) -> str:
+    if not values:
+        return f"{title}: none"
+    if not isinstance(values, list):
+        values = [values]
+    lines = [f"{title}:"]
+    lines.extend(f"  - {value}" for value in values)
+    return "\n".join(lines)
+
+
+def _table(columns: list[str], rows: list[dict[str, Any]], *, title: str) -> str:
+    if not rows:
+        return f"{title}\n{'-' * len(title)}\n(no rows)"
+    string_rows = [{column: _table_value(row.get(column)) for column in columns} for row in rows]
+    widths = {
+        column: min(48, max(len(column), *(len(row[column]) for row in string_rows)))
+        for column in columns
+    }
+    header = "  ".join(column[: widths[column]].ljust(widths[column]) for column in columns)
+    separator = "  ".join("-" * widths[column] for column in columns)
+    body = [
+        "  ".join(row[column][: widths[column]].ljust(widths[column]) for column in columns)
+        for row in string_rows
+    ]
+    return "\n".join([title, "-" * len(title), header, separator, *body])
+
+
+def _table_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return _yes_no(value)
+    if value is None:
+        return ""
+    if isinstance(value, (list, tuple)):
+        return ",".join(str(item) for item in value)
+    return str(value).replace("\n", " ")
+
+
+def _yes_no(value: bool) -> str:
+    return "yes" if value else "no"
+
+
+def _available(value: Any) -> str:
+    return "available" if value else "missing"
+
+
+def _enabled_disabled(value: Any) -> str:
+    return "enabled" if value else "disabled"
 
 
 if __name__ == "__main__":

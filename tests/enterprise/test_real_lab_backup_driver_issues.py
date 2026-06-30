@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import sys
+import types
+
 import pytest
 
 from app.core.exceptions import ConfigApplyNotAllowedError
@@ -19,6 +22,7 @@ from app.services.real_lab_apply_runner import (
 from app.services.transport_runtime import RuntimeCredentials
 from app.services.vendor_command_templates import VendorCommandTemplateService
 from app.transports.base import CommandExecutionResult
+from app.transports.netmiko_transport import NetmikoConnectionParams, NetmikoTransport
 from app.utils.config_sanitizer import sanitize_config
 
 
@@ -364,6 +368,67 @@ def test_netmiko_paged_backup_requires_final_prompt() -> None:
     assert result.error is not None
     assert "phase=paging" in result.error
     assert "final prompt" in result.error
+
+
+def test_netmiko_transport_passes_connection_timeouts_to_connecthandler(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, object] = {}
+
+    class FakeConnection:
+        def disconnect(self) -> None:
+            pass
+
+    def connect_handler(**kwargs: object) -> FakeConnection:
+        seen.update(kwargs)
+        return FakeConnection()
+
+    monkeypatch.setitem(sys.modules, "netmiko", types.SimpleNamespace(ConnectHandler=connect_handler))
+
+    transport = NetmikoTransport(
+        NetmikoConnectionParams(
+            host="192.0.2.44",
+            device_type="huawei_vrp",
+            username="admin",
+            password="Secret",
+            timeout=45,
+        )
+    )
+    transport.open()
+
+    assert seen["device_type"] == "huawei_vrp"
+    assert seen["timeout"] == 45
+    assert seen["conn_timeout"] == 45
+    assert seen["auth_timeout"] == 45
+    assert seen["banner_timeout"] == 45
+    assert seen["fast_cli"] is False
+
+
+def test_netmiko_open_failure_returns_sanitized_diagnostic() -> None:
+    decision = _decision(DeviceFamily.huawei_vrp, driver_name="HuaweiVRPDriver", transport=TransportKind.netmiko)
+
+    class BrokenNetmikoTransport:
+        def open(self) -> None:
+            raise RuntimeError(
+                "Paramiko: 'No existing session' while connecting to 192.0.2.44 with password SHOULD_NOT_LEAK"
+            )
+
+        def close(self) -> None:
+            pass
+
+    transport = NetmikoCommandTransport.__new__(NetmikoCommandTransport)
+    transport.decision = decision
+    transport._transport = BrokenNetmikoTransport()
+
+    with pytest.raises(RuntimeError) as exc:
+        transport.open()
+
+    diagnostic = str(exc.value)
+    assert "Lab SSH transport failed" in diagnostic
+    assert "transport=netmiko" in diagnostic
+    assert "family=huawei_vrp" in diagnostic
+    assert "phase=connect" in diagnostic
+    assert "192.0.2.44" not in diagnostic
+    assert "<redacted-ip>" in diagnostic
+    assert "SHOULD_NOT_LEAK" not in diagnostic
 
 
 def test_transport_diagnostic_redacts_secret_like_text() -> None:

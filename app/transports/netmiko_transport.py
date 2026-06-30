@@ -14,6 +14,9 @@ class NetmikoConnectionParams:
     password: str
     port: int = 22
     timeout: int = 15
+    conn_timeout: int | None = None
+    auth_timeout: int | None = None
+    banner_timeout: int | None = None
     enable_password: str | None = None
 
 
@@ -32,6 +35,9 @@ class NetmikoTransport:
             "password": self.params.password,
             "port": self.params.port,
             "timeout": self.params.timeout,
+            "conn_timeout": self.params.conn_timeout or self.params.timeout,
+            "auth_timeout": self.params.auth_timeout or self.params.timeout,
+            "banner_timeout": self.params.banner_timeout or self.params.timeout,
             "fast_cli": False,
         }
         if self.params.enable_password:
@@ -56,4 +62,3 @@ class NetmikoTransport:
             raise RuntimeError("Netmiko transport is not open")
         output = self._connection.send_config_set(commands, read_timeout=timeout_seconds, cmd_verify=False)
         return [CommandExecutionResult(command="\n".join(commands), output=output, success=True)]
-

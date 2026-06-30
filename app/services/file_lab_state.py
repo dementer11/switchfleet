@@ -32,6 +32,7 @@ class FileLabStatePaths:
     evaluations: Path
     lab_validations: Path
     executions: Path
+    reports: Path
 
 
 class FileLabState:
@@ -48,6 +49,7 @@ class FileLabState:
             evaluations=root / "evaluations.json",
             lab_validations=root / "lab_validations.json",
             executions=root / "executions",
+            reports=root / "reports",
         )
         self.ensure()
 
@@ -56,7 +58,8 @@ class FileLabState:
         self.paths.backups.mkdir(parents=True, exist_ok=True)
         self.paths.executions.mkdir(parents=True, exist_ok=True)
         self.paths.lockfiles.mkdir(parents=True, exist_ok=True)
-        for directory in (self.paths.root, self.paths.backups, self.paths.executions, self.paths.lockfiles):
+        self.paths.reports.mkdir(parents=True, exist_ok=True)
+        for directory in (self.paths.root, self.paths.backups, self.paths.executions, self.paths.lockfiles, self.paths.reports):
             _chmod_private(directory, directory=True)
         defaults: tuple[tuple[Path, dict[str, Any]], ...] = (
             (self.paths.credentials, {"credentials": []}),
@@ -299,6 +302,30 @@ class FileLabState:
         path = self.paths.executions / f"{execution['id']}.json"
         self._write_json(path, execution)
         return execution
+
+    def save_report(self, kind: str, payload: dict[str, Any], markdown: str) -> dict[str, Any]:
+        report_id = _new_id(kind)
+        created_at = _now()
+        json_path = self.paths.reports / f"{report_id}.json"
+        markdown_path = self.paths.reports / f"{report_id}.md"
+        self._write_json(
+            json_path,
+            {
+                "id": report_id,
+                "kind": kind,
+                "created_at": created_at,
+                "payload": _sanitize(payload),
+            },
+        )
+        markdown_path.write_text(mask_secrets(markdown), encoding="utf-8")
+        _chmod_private(markdown_path)
+        return {
+            "id": report_id,
+            "kind": kind,
+            "created_at": created_at,
+            "json_path": str(json_path.relative_to(self.paths.root)),
+            "markdown_path": str(markdown_path.relative_to(self.paths.root)),
+        }
 
     def append_audit(self, *, action: str, actor: str, object_type: str, object_id: str, metadata: dict[str, Any]) -> dict[str, Any]:
         event = {
