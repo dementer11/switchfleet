@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SwitchFleet Local</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Excel-first local mode</p>
+        <h1>SwitchFleet Local</h1>
+      </div>
+      <div class="status-strip">
+        <span class="status-pill safe">Production apply disabled</span>
+        <span class="status-pill">DB not required</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <section class="panel">
+          <h2>Workspace</h2>
+          <label>
+            Excel inventory
+            <input id="inventoryPath" type="text" value="examples/lab/inventory.example.xlsx" autocomplete="off" />
+          </label>
+          <label>
+            State directory
+            <input id="stateDir" type="text" value=".switchfleet_lab" autocomplete="off" />
+          </label>
+          <div class="field-row">
+            <label class="checkbox">
+              <input id="debugMode" type="checkbox" />
+              debug
+            </label>
+            <label class="checkbox">
+              <input id="allDevices" type="checkbox" />
+              all devices
+            </label>
+          </div>
+          <div class="button-row">
+            <button data-command="doctor">Doctor</button>
+            <button data-command="summary">Summary</button>
+            <button data-command="list">List</button>
+          </div>
+        </section>
+
+        <nav class="nav">
+          <button class="nav-button active" data-tab="runtime">Runtime</button>
+          <button class="nav-button" data-tab="credentials">Credentials</button>
+          <button class="nav-button" data-tab="operations">Operations</button>
+          <button class="nav-button" data-tab="workflow">Workflow</button>
+          <button class="nav-button" data-tab="audit">Audit</button>
+        </nav>
+      </aside>
+
+      <section class="content">
+        <section class="panel tab-panel active" id="tab-runtime">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Inventory and support</p>
+              <h2>Runtime decisions</h2>
+            </div>
+            <button data-command="check-runtime">Check runtime</button>
+          </div>
+          <div class="grid-two">
+            <label>
+              Device IP
+              <input id="deviceIp" type="text" placeholder="192.0.2.67" autocomplete="off" />
+            </label>
+            <label>
+              Limit
+              <input id="limit" type="number" min="1" placeholder="50" />
+            </label>
+          </div>
+          <div class="grid-three">
+            <label>
+              Vendor filter
+              <input id="vendorFilter" type="text" />
+            </label>
+            <label>
+              Category filter
+              <input id="categoryFilter" type="text" />
+            </label>
+            <label>
+              Status filter
+              <input id="statusFilter" type="text" />
+            </label>
+          </div>
+          <label class="checkbox">
+            <input id="allowlistedOnly" type="checkbox" />
+            allowlisted only
+          </label>
+        </section>
+
+        <section class="panel tab-panel" id="tab-credentials">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Encrypted local vault</p>
+              <h2>Credential</h2>
+            </div>
+            <button data-command="add-credential">Save credential</button>
+          </div>
+          <div class="grid-three">
+            <label>
+              Credential name
+              <input id="credentialName" type="text" value="default" autocomplete="off" />
+            </label>
+            <label>
+              Username
+              <input id="credentialUsername" type="text" autocomplete="off" />
+            </label>
+            <label>
+              Purpose
+              <input id="credentialPurpose" type="text" value="lab_apply" autocomplete="off" />
+            </label>
+          </div>
+          <label>
+            Password
+            <input id="credentialPassword" type="password" autocomplete="new-password" />
+          </label>
+        </section>
+
+        <section class="panel tab-panel" id="tab-operations">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Backup, plan, gate, execute</p>
+              <h2>Device operation</h2>
+            </div>
+            <div class="button-row">
+              <button data-command="backup">Backup</button>
+              <button data-command="dry-run">Dry-run</button>
+              <button data-command="evaluate-apply">Evaluate</button>
+              <button data-command="certify">Certify</button>
+              <button class="danger" data-command="execute-apply">Execute</button>
+            </div>
+          </div>
+          <div class="grid-three">
+            <label>
+              Credential ref
+              <input id="credentialRef" type="text" value="default" autocomplete="off" />
+            </label>
+            <label>
+              Operation
+              <select id="operation">
+                <option value="vlan_create">vlan_create</option>
+                <option value="vlan_assign_port">vlan_assign_port</option>
+                <option value="password_change">password_change</option>
+                <option value="port_description">port_description</option>
+                <option value="port_enable_disable">port_enable_disable</option>
+                <option value="acl_update">acl_update</option>
+              </select>
+            </label>
+            <label>
+              Capability
+              <input id="capability" type="text" value="vlan_create" autocomplete="off" />
+            </label>
+          </div>
+          <div class="grid-three">
+            <label>
+              VLAN ID
+              <input id="vlanId" type="number" min="1" max="4094" value="123" />
+            </label>
+            <label>
+              Name
+              <input id="operationName" type="text" value="TEST_VLAN" autocomplete="off" />
+            </label>
+            <label>
+              Interface
+              <input id="interfaceName" type="text" autocomplete="off" />
+            </label>
+          </div>
+          <div class="grid-three">
+            <label>
+              Password user
+              <input id="passwordUser" type="text" autocomplete="off" />
+            </label>
+            <label>
+              New password
+              <input id="newPassword" type="password" autocomplete="new-password" />
+            </label>
+            <label>
+              Privilege level
+              <input id="privilegeLevel" type="number" min="0" max="15" value="15" />
+            </label>
+          </div>
+          <div class="grid-two">
+            <label>
+              Simulation hash
+              <input id="simulationHash" type="text" autocomplete="off" />
+            </label>
+            <label class="checkbox inline-checkbox">
+              <input id="realLab" type="checkbox" />
+              explicit real lab execution
+            </label>
+          </div>
+        </section>
+
+        <section class="panel tab-panel" id="tab-workflow">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">All inventory devices</p>
+              <h2>Profile workflow</h2>
+            </div>
+            <button data-command="workflow">Run workflow</button>
+          </div>
+          <div class="grid-two">
+            <label>
+              Profile JSON path
+              <input id="profilePath" type="text" value="examples/lab/vlan-profile.example.json" autocomplete="off" />
+            </label>
+            <label class="checkbox inline-checkbox">
+              <input id="withBackup" type="checkbox" />
+              include read-only backup
+            </label>
+          </div>
+          <button data-command="certification-report">Certification report</button>
+        </section>
+
+        <section class="panel tab-panel" id="tab-audit">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Local state</p>
+              <h2>Audit tail</h2>
+            </div>
+            <button data-command="audit-tail">Load audit</button>
+          </div>
+          <label>
+            Limit
+            <input id="auditLimit" type="number" min="1" value="20" />
+          </label>
+        </section>
+
+        <section class="output-shell">
+          <div class="output-header">
+            <div>
+              <p class="eyebrow">Result</p>
+              <h2 id="resultTitle">No command run yet</h2>
+            </div>
+            <button id="copyJson" type="button">Copy JSON</button>
+          </div>
+          <div id="message" class="message"></div>
+          <div id="tableOutput" class="table-wrap"></div>
+          <pre id="jsonOutput">{}</pre>
+        </section>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
