@@ -1164,6 +1164,9 @@ def _vault(state: FileLabState) -> FileCredentialVault:
 
 
 def _read_secret(args: argparse.Namespace) -> str:
+    direct_value = getattr(args, "password_value", None)
+    if direct_value is not None:
+        return str(direct_value)
     if args.password_env:
         value = os.getenv(args.password_env)
         if value is None:
@@ -1175,6 +1178,9 @@ def _read_secret(args: argparse.Namespace) -> str:
 
 
 def _read_new_password(args: argparse.Namespace) -> str:
+    direct_value = getattr(args, "new_password_value", None)
+    if direct_value is not None:
+        return str(direct_value)
     if args.new_password_env:
         value = os.getenv(args.new_password_env)
         if value is None:

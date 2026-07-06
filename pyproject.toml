@@ -16,6 +16,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+web = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+]
 enterprise = [
   "alembic>=1.13",
   "celery>=5.4",
@@ -65,6 +69,7 @@ ignore_missing_imports = true
 [project.scripts]
 netops = "netops_orchestrator.cli:main"
 switchfleet = "scripts.excel_lab:main"
+switchfleet-web = "scripts.excel_lab_web:main"
 
 [build-system]
 requires = ["setuptools>=69", "wheel"]
@@ -75,4 +80,4 @@ where = [".", "src"]
 include = ["app*", "netops_orchestrator*", "scripts*"]
 
 [tool.setuptools.package-data]
-app = ["templates/**/*.j2"]
+app = ["templates/**/*.j2", "web/**/*"]

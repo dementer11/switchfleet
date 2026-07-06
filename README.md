@@ -86,6 +86,33 @@ switchfleet examples/lab/inventory.example.xlsx summary
 
 When working directly from a source checkout before installation, the compatibility script remains available as `python scripts/excel_lab.py`.
 
+## Local Web UI
+
+The Excel-first workflow also has a local web UI for operators who prefer a dashboard over shell commands. It uses the same Excel inventory, `.switchfleet_lab/` state, credential vault, runtime matrix, command templates, backup runner, dry-run/evaluate gates, certification records, and audit tail as the `switchfleet` CLI.
+
+Install the local web dependencies and start the UI:
+
+```powershell
+python -m pip install -e ".[web]"
+switchfleet-web --host 127.0.0.1 --port 8787
+```
+
+Open `http://127.0.0.1:8787/` and enter the Excel inventory path, for example `inventory.xlsx` or `examples/lab/inventory.example.xlsx`.
+
+The web UI supports the same local workflow stages:
+
+- doctor, summary, list, and check-runtime;
+- encrypted credential creation;
+- read-only backup;
+- dry-run command rendering;
+- evaluate-apply safety gates;
+- lab-only certification records;
+- profile workflow across all Excel rows;
+- fake execute and explicitly gated per-device real-lab execute;
+- certification report and audit-tail.
+
+The web UI is DB-independent. It does not use the enterprise PostgreSQL path and does not add a generic `/apply` endpoint. Production apply remains disabled, bulk real-lab execution remains blocked, and dry-run/evaluate do not decrypt credentials or open SSH.
+
 Create a local encrypted credential ref:
 
 ```powershell

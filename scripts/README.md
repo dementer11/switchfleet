@@ -17,6 +17,17 @@ The same `switchfleet` CLI is the supported local entrypoint on Windows, Linux, 
 
 The source-checkout compatibility form is still available as `python scripts/excel_lab.py`.
 
+## Optional Local Web UI
+
+Use `switchfleet-web` when you want the same Excel-first local workflow through a browser.
+
+```powershell
+python -m pip install -e ".[web]"
+switchfleet-web --host 127.0.0.1 --port 8787
+```
+
+This starts `app.local_web`, which serves only the DB-independent Excel workflow API and static UI. It does not start the enterprise PostgreSQL API router.
+
 ## Optional Enterprise Prototype
 
 Use `lab_prototype.py` only when you intentionally want the DB-backed enterprise prototype path.
