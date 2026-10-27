@@ -1,0 +1,9 @@
+---
+- name: Execute validated SwitchFleet device plans
+  hosts: all
+  gather_facts: false
+  strategy: free
+  tasks:
+    - name: Execute device operation through the SwitchFleet network profile
+      switchfleet_device:
+        device_id: "{{ device_id }}"

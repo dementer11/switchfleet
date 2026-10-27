@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#f4f6f8" />
+  <title>SwitchFleet — управление парком</title>
+  <link rel="stylesheet" href="/assets/styles.css" />
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#inventory" aria-label="SwitchFleet, инвентарь">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M6 11h20v12H6zM10 7h12v4H10zM10 15h3v3h-3zm9 0h3v3h-3zM10 20h12"/></svg></span>
+        <span><strong>SwitchFleet</strong><small>Операционная панель</small></span>
+      </a>
+      <div class="nav-label">Рабочая область</div>
+      <nav class="nav-list" aria-label="Основная навигация">
+        <button class="nav-item active" data-view="inventory"><span class="nav-icon">▦</span><span>Инвентарь</span><span class="nav-count" id="nav-device-count">—</span></button>
+        <button class="nav-item" data-view="jobs"><span class="nav-icon">◷</span><span>Задания</span><span class="nav-count" id="nav-job-count">—</span></button>
+        <button class="nav-item" data-view="credentials"><span class="nav-icon">⌑</span><span>Учётные данные</span></button>
+        <button class="nav-item" data-view="audit"><span class="nav-icon">≡</span><span>Журнал</span></button>
+      </nav>
+      <div class="sidebar-spacer"></div>
+      <section class="engine-card" aria-live="polite">
+        <div class="engine-top"><span class="engine-dot" id="engine-dot"></span><span id="engine-label">Проверка Ansible…</span></div>
+        <div class="engine-detail" id="engine-detail">Состояние движка</div>
+      </section>
+      <div class="sidebar-foot"><span class="shield-icon">◆</span><span>Локальное управление<br /><small>SwitchFleet</small></span></div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div class="breadcrumbs"><span>SwitchFleet</span><span class="crumb-sep">/</span><strong id="page-crumb">Инвентарь</strong></div>
+        <div class="topbar-actions"><span class="top-status"><i id="header-status-dot"></i><span id="header-status">Подключение к API</span></span><button class="icon-button mobile-menu" id="mobile-menu" aria-label="Открыть меню">☰</button><span class="avatar">SF</span></div>
+      </header>
+
+      <div id="global-notice" class="notice hidden" role="alert"></div>
+      <section class="view active" id="view-inventory">
+        <div class="page-heading">
+          <div><p class="eyebrow">УПРАВЛЕНИЕ ИНФРАСТРУКТУРОЙ</p><h1>Инвентарь сети</h1><p class="subheading">Устройства из загруженного источника. Выберите нужные узлы для операции.</p></div>
+          <div class="heading-actions"><input id="inventory-file" type="file" accept=".xlsx,.csv,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,application/json" hidden /><button class="button secondary" id="import-button"><span>↑</span> Импорт файла</button><button class="button primary" id="refresh-button"><span>↻</span> Обновить</button></div>
+        </div>
+        <div class="metric-row">
+          <article class="metric-card"><div class="metric-label">Устройств</div><div class="metric-value" id="metric-total">—</div><div class="metric-hint">В текущем инвентаре</div><span class="metric-icon blue">▦</span></article>
+          <article class="metric-card"><div class="metric-label">Вендоры</div><div class="metric-value" id="metric-vendors">—</div><div class="metric-hint">Представлены в списке</div><span class="metric-icon violet">◇</span></article>
+          <article class="metric-card"><div class="metric-label">Требуют внимания</div><div class="metric-value" id="metric-attention">—</div><div class="metric-hint">Статус требует проверки</div><span class="metric-icon amber">!</span></article>
+          <article class="metric-card"><div class="metric-label">Выбрано</div><div class="metric-value" id="metric-selected">0</div><div class="metric-hint">Узлы для следующего задания</div><span class="metric-icon green">✓</span></article>
+        </div>
+        <section class="panel inventory-panel">
+          <div class="panel-heading"><div><h2>Сетевые устройства</h2><p id="inventory-summary">Загрузите XLSX, CSV или JSON файл либо дождитесь данных API</p></div><button class="button primary" id="open-operation"><span>＋</span> Создать задание</button></div>
+          <div class="filters">
+            <label class="search-box"><span>⌕</span><input id="search-filter" type="search" placeholder="Поиск по IP, названию, модели…" aria-label="Поиск устройств" /></label>
+            <select id="vendor-filter" aria-label="Фильтр по вендору"><option value="">Все вендоры</option></select>
+            <select id="family-filter" aria-label="Фильтр по профилю"><option value="">Все профили</option></select>
+            <select id="status-filter" aria-label="Фильтр по статусу"><option value="">Все статусы</option></select>
+          </div>
+          <div class="table-wrap" id="table-wrap">
+            <table class="device-table"><thead><tr><th class="check-cell"><input type="checkbox" id="select-visible" aria-label="Выбрать все видимые устройства" /></th><th>УСТРОЙСТВО</th><th>ИСХОДНАЯ МОДЕЛЬ</th><th>ВЕНДОР</th><th>ПРОФИЛЬ</th><th>СТАТУС</th><th>SSH</th><th>УЧЁТНЫЕ ДАННЫЕ</th><th></th></tr></thead><tbody id="device-rows"></tbody></table>
+            <div class="empty-state" id="inventory-empty"><div class="empty-icon">▦</div><h3>Инвентарь пока пуст</h3><p>Выберите файл XLSX, CSV или JSON со списком устройств, чтобы начать работу.</p><button class="button secondary" id="empty-import">Выбрать файл</button></div>
+            <div class="loading-state hidden" id="inventory-loading"><span class="spinner"></span> Загружаем инвентарь…</div>
+          </div>
+          <div class="table-footer"><span id="visible-count">Показано 0 устройств</span><span class="selected-foot" id="selection-note">Выбрано: 0</span></div>
+        </section>
+        <div class="safe-note"><span>ⓘ</span><span>Профили показывают поддержку, заявленную приложением. Это не подтверждает проверку каждой модели на реальном оборудовании.</span></div>
+      </section>
+
+      <section class="view" id="view-jobs"><div class="page-heading"><div><p class="eyebrow">ВЫПОЛНЕНИЕ</p><h1>Задания</h1><p class="subheading">Планы, выполнение и результаты по каждому устройству.</p><p class="subheading backup-note">Конфигурации выгружаются со скрытыми секретами.</p></div><button class="button secondary" id="jobs-refresh">↻ Обновить</button></div><section class="panel"><div class="panel-heading"><div><h2>История заданий</h2><p>Состояние обновляется автоматически для выполняющихся заданий.</p></div></div><div id="jobs-list" class="list-content"><div class="empty-state compact"><div class="empty-icon">◷</div><h3>Заданий пока нет</h3><p>Создайте задание из выбранных устройств в инвентаре.</p></div></div></section></section>
+
+      <section class="view" id="view-credentials"><div class="page-heading"><div><p class="eyebrow">ДОСТУП</p><h1>Учётные данные</h1><p class="subheading">Сохранённые ссылки на учётные записи для SSH-подключений.</p></div><button class="button primary" id="add-credential">＋ Добавить учётные данные</button></div><div class="safe-note credential-warning"><span>◆</span><span>Пароли хранятся локально в зашифрованном виде. В заданиях используется выбранная запись.</span></div><section class="panel"><div class="panel-heading"><div><h2>Сохранённые записи</h2><p id="credential-summary">Управление учётными данными</p></div></div><div id="credentials-list" class="list-content"><div class="loading-state"><span class="spinner"></span> Загружаем…</div></div></section></section>
+
+      <section class="view" id="view-audit"><div class="page-heading"><div><p class="eyebrow">КОНТРОЛЬ ИЗМЕНЕНИЙ</p><h1>Журнал событий</h1><p class="subheading">События импорта, планирования и выполнения операций.</p></div><button class="button secondary" id="audit-refresh">↻ Обновить</button></div><section class="panel"><div class="panel-heading"><div><h2>Последние события</h2></div></div><div id="audit-list" class="list-content"><div class="loading-state"><span class="spinner"></span> Загружаем журнал…</div></div></section></section>
+    </main>
+  </div>
+
+  <div class="drawer-backdrop hidden" id="drawer-backdrop"></div>
+  <aside class="drawer hidden" id="operation-drawer" aria-labelledby="drawer-title" role="dialog" aria-modal="true">
+    <div class="drawer-header"><div><p class="eyebrow">НОВОЕ ЗАДАНИЕ</p><h2 id="drawer-title">Параметры операции</h2></div><button class="icon-button" data-close-drawer aria-label="Закрыть">×</button></div>
+    <div class="drawer-body"><div class="selection-banner"><span class="selection-check">✓</span><span><strong id="drawer-selected-count">0 устройств выбрано</strong><small>Состав выборки можно изменить в инвентаре</small></span><button id="back-to-inventory" class="text-button">Изменить</button></div>
+      <label class="field-label" for="operation-select">Операция</label><select id="operation-select" class="field-control"><option value="facts">Сбор фактов</option><option value="backup">Резервная копия конфигурации</option><option value="commands">Выполнить команды</option><option value="configure">Применить полный CLI-план</option><option value="vlan_create">Создать VLAN</option><option value="vlan_assign_port">Назначить VLAN порту</option><option value="port_description">Изменить описание порта</option><option value="port_state">Изменить состояние порта</option><option value="password_change">Сменить пароль пользователя</option></select>
+      <div class="operation-description" id="operation-description"></div>
+      <div id="operation-fields" class="operation-fields"></div>
+      <div class="form-grid"><label><span class="field-label">Тайм-аут, сек</span><input class="field-control" id="timeout-input" type="number" min="5" max="600" value="30" /></label><label><span class="field-label">Параллельность (forks)</span><input class="field-control" id="forks-input" type="number" min="1" max="50" value="5" /></label></div>
+      <div class="form-error hidden" id="operation-error" role="alert"></div>
+    </div><div class="drawer-footer"><button class="button secondary" data-close-drawer>Отмена</button><button class="button primary" id="create-plan">Создать план</button></div>
+  </aside>
+
+  <div class="modal-backdrop hidden" id="plan-backdrop"></div>
+  <section class="plan-modal hidden" id="plan-modal" role="dialog" aria-modal="true" aria-labelledby="plan-title"><div class="plan-header"><div><p class="eyebrow">ПРЕДВАРИТЕЛЬНЫЙ ПРОСМОТР</p><h2 id="plan-title">План выполнения</h2><p id="plan-meta"></p></div><button class="icon-button" id="close-plan" aria-label="Закрыть">×</button></div><div class="plan-summary" id="plan-summary"></div><div class="plan-body" id="plan-devices"></div><div class="plan-footer"><label class="confirm-line hidden" id="confirm-line"><input type="checkbox" id="confirm-write" /><span>Я проверил команды и подтверждаю, что эти изменения запланированы.</span></label><div class="plan-actions"><button class="button secondary" id="cancel-plan">Закрыть</button><button class="button primary" id="execute-plan">Подтвердить и выполнить</button></div></div></section>
+
+  <div class="modal-backdrop hidden" id="credential-backdrop"></div>
+  <section class="small-modal hidden" id="credential-modal" role="dialog" aria-modal="true" aria-labelledby="credential-title"><div class="modal-heading"><div><p class="eyebrow">УЧЁТНЫЕ ДАННЫЕ</p><h2 id="credential-title">Добавить запись</h2></div><button class="icon-button" id="close-credential" aria-label="Закрыть">×</button></div><form id="credential-form"><label class="field-label" for="credential-name">Название записи</label><input class="field-control" id="credential-name" required maxlength="80" autocomplete="off" /><label class="field-label" for="credential-username">Имя пользователя</label><input class="field-control" id="credential-username" required maxlength="128" autocomplete="username" /><label class="field-label" for="credential-password">Пароль</label><input class="field-control" id="credential-password" type="password" required autocomplete="new-password" /><label class="field-label" for="credential-enable">Enable-пароль <span class="muted">необязательно</span></label><input class="field-control" id="credential-enable" type="password" autocomplete="new-password" /><div class="form-error hidden" id="credential-error" role="alert"></div><div class="modal-actions"><button class="button secondary" type="button" id="cancel-credential">Отмена</button><button class="button primary" type="submit">Сохранить</button></div></form></section>
+  <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

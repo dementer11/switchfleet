@@ -1,5 +1,24 @@
 # SwitchFleet Local
 
+## Operator application with Ansible execution
+
+The standalone operator application adds Excel/CSV/JSON upload, selectable device
+inventory, encrypted local credentials, reviewed command plans, asynchronous
+Ansible jobs, per-device results, configuration downloads, and a persistent audit.
+It runs without the enterprise database stack. Linux installation:
+
+```bash
+bash scripts/install-fleet.sh
+.venv/bin/switchfleet-ui
+```
+
+Open `http://127.0.0.1:8787`. The Windows portable build starts the bundled Linux
+executor with `Start-SwitchFleet.cmd` and serves `http://127.0.0.1:18787`.
+See [operator application documentation](docs/fleet-application.md) for operations,
+data storage, and the limits of device compatibility and configuration exports.
+The Excel-first CLI and optional enterprise prototype described below remain
+available as separate entry points.
+
 SwitchFleet Local v0.3.0 is an Excel-first MVP for controlled multi-vendor switch administration in lab environments.
 
 The primary workflow runs locally from an Excel inventory without PostgreSQL, Alembic, FastAPI, Docker, or Redis. The FastAPI/PostgreSQL backend remains available as an optional enterprise mode. Both modes retain dry-run-first operations, encrypted credentials, backup-before-change gates, per-device locks, audit records, and vendor-aware safety decisions.

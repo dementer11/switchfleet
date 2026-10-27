@@ -1,6 +1,6 @@
 [project]
 name = "netops-orchestrator"
-version = "0.3.0"
+version = "0.4.0"
 description = "Excel-first local switch administration with optional enterprise orchestration APIs."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,6 +16,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+fleet = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "ansible-core>=2.18,<2.20; sys_platform != 'win32'",
+  "ansible-runner>=2.4,<3; sys_platform != 'win32'",
+]
 web = [
   "fastapi>=0.115",
   "uvicorn[standard]>=0.30",
@@ -67,12 +73,13 @@ module = ["celery.*", "openpyxl.*"]
 ignore_missing_imports = true
 
 [project.scripts]
+switchfleet-ui = "scripts.fleet_web:main"
 netops = "netops_orchestrator.cli:main"
 switchfleet = "scripts.excel_lab:main"
 switchfleet-web = "scripts.excel_lab_web:main"
 
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=69,<82", "wheel>=0.45,<0.46"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -80,4 +87,4 @@ where = [".", "src"]
 include = ["app*", "netops_orchestrator*", "scripts*"]
 
 [tool.setuptools.package-data]
-app = ["templates/**/*.j2", "web/**/*"]
+app = ["templates/**/*.j2", "web/**/*", "fleet/web/**/*", "fleet/ansible/project/**/*.yml", "fleet/ansible/project/**/*.py", "fleet/ansible/project/*.yml"]

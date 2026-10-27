@@ -85,6 +85,42 @@ def test_excel_inventory_missing_columns_and_duplicate_selector_are_friendly(tmp
         raise AssertionError("Duplicate Excel IP selector was not rejected")
 
 
+def test_excel_inventory_accepts_export_preamble_and_reports_source_row(tmp_path: Path) -> None:
+    path = tmp_path / "export.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append([None])
+    sheet.append(["Exported 1 records."])
+    sheet.append([None])
+    sheet.append(EXCEL_HEADERS)
+    sheet.append(["Active", "export-lab", "S5720", "192.0.2.80", "Huawei", "Switch", "Lab", "NetOps"])
+    workbook.save(path)
+    workbook.close()
+
+    devices = load_excel_inventory(path)
+
+    assert len(devices) == 1
+    assert devices[0].label == "export-lab"
+    assert devices[0].ip_address == "192.0.2.80"
+
+    broken = tmp_path / "export-missing-model.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append([None])
+    sheet.append(["Exported 1 records."])
+    sheet.append(EXCEL_HEADERS)
+    sheet.append(["Active", "export-lab", None, "192.0.2.80", "Huawei", "Switch", "Lab", "NetOps"])
+    workbook.save(broken)
+    workbook.close()
+
+    try:
+        load_excel_inventory(broken)
+    except ExcelInventoryError as exc:
+        assert "Excel row 4" in str(exc)
+    else:
+        raise AssertionError("Missing device model was not rejected")
+
+
 def test_excel_unknown_vendor_cannot_be_upgraded_to_a_candidate_by_model_hints(tmp_path: Path) -> None:
     device = load_excel_inventory(
         write_inventory(
