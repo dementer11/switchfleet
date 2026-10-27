@@ -62,16 +62,24 @@ def load_excel_inventory(path: str | Path) -> list[ExcelInventoryDevice]:
         raise ExcelInventoryError(f"Unable to read Excel inventory {inventory_path}: {exc}") from exc
     try:
         sheet = workbook.active
-        rows = sheet.iter_rows(values_only=True)
-        headers = _next_non_empty_row(rows)
-        if headers is None:
+        rows = enumerate(sheet.iter_rows(values_only=True), start=1)
+        header_entry = _next_non_empty_row(rows)
+        if header_entry is None:
             raise ExcelInventoryError("Excel inventory is empty")
+        _, headers = header_entry
+        # Some inventory exports include a single summary line before the actual
+        # header. Accept only that known form, followed by optional blank rows.
+        if _is_export_preamble(headers):
+            header_entry = _next_non_empty_row(rows)
+            if header_entry is None:
+                raise ExcelInventoryError("Excel inventory is empty")
+            _, headers = header_entry
         header_map = _header_map(headers)
         missing = [column for column in REQUIRED_COLUMNS if _normalize_header(column) not in header_map]
         if missing:
             raise ExcelInventoryError(f"Excel inventory is missing required column(s): {', '.join(missing)}")
         devices: list[ExcelInventoryDevice] = []
-        for row_index, row in enumerate(rows, start=2):
+        for row_index, row in rows:
             item = _row_dict(row, header_map)
             if _skip_row(item):
                 continue
@@ -159,11 +167,16 @@ def infer_runtime_hints(vendor: str, model: str, category: str | None = None) ->
     return None, None
 
 
-def _next_non_empty_row(rows: Any) -> tuple[Any, ...] | None:
-    for row in rows:
+def _next_non_empty_row(rows: Any) -> tuple[int, tuple[Any, ...]] | None:
+    for row_index, row in rows:
         if any(_cell(value) for value in row):
-            return tuple(row)
+            return row_index, tuple(row)
     return None
+
+
+def _is_export_preamble(row: tuple[Any, ...]) -> bool:
+    populated = [_cell(value) for value in row if _cell(value)]
+    return len(populated) == 1 and re.fullmatch(r"Exported\s+\d+\s+records\.?", populated[0], re.IGNORECASE) is not None
 
 
 def _header_map(headers: tuple[Any, ...]) -> dict[str, int]:
